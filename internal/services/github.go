@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"nezha_cyber_mcp/internal/model"
 	"nezha_cyber_mcp/internal/repository"
 	"nezha_cyber_mcp/internal/utilities"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
-
-	"github.com/gocolly/colly/v2"
-	"github.com/gocolly/colly/v2/extensions"
 )
 
 const (
@@ -22,23 +22,20 @@ const (
 	// UserAgent 是向 GitHub API 发起请求时使用的 User-Agent 标识。
 	UserAgent = "advisory-sync/1.0"
 
-	// advisoryBaseURL 是 GitHub 安全公告列表页面的入口地址。
-	advisoryBaseURL = "https://github.com/advisories"
-
 	// component 是本服务在日志中使用的组件名称标识。
 	component = "GithubAdvisoryService"
 
 	// defaultRequestTimeout 是单次 HTTP 请求的默认超时时间。
 	defaultRequestTimeout = 30 * time.Second
 
-	// defaultMaxDepth 是 colly 爬虫允许的最大页面跳转深度。
-	defaultMaxDepth = 2
+	// defaultPerPage 是每次 API 请求返回的最大条目数（GitHub 上限为 100）。
+	defaultPerPage = 100
 
-	// defaultParallelism 是爬虫对同一域名的最大并发请求数。
-	defaultParallelism = 4
+	// defaultRetryMax 是遇到 429 / 5xx 时的最大重试次数。
+	defaultRetryMax = 5
 
-	// defaultRateLimit 是对同一域名相邻两次请求之间的最小间隔，防止触发限流。
-	defaultRateLimit = 500 * time.Millisecond
+	// defaultRetryBackoff 是首次重试前的等待基准时间，每次重试翻倍（指数退避）。
+	defaultRetryBackoff = 2 * time.Second
 )
 
 // linkRe 用于解析 HTTP Link 响应头中的分页链接。
@@ -62,37 +59,45 @@ func nextLink(header string) string {
 	return ""
 }
 
-// AdvisoryScraperConfig 保存爬虫的可调参数。
+// AdvisoryScraperConfig 保存 API 客户端的可调参数。
 // 所有字段均有合理默认值，可通过 NewGithubAdvisoryService 的 cfg 参数覆盖。
 type AdvisoryScraperConfig struct {
-	// MaxPages 限制最多访问的列表页数，0 表示不限制（抓取全部页面）。
+	// MaxPages 限制最多请求的页数，0 表示不限制（拉取全部数据）。
 	MaxPages int
 
 	// RequestTimeout 是单次 HTTP 请求的超时时间。
 	RequestTimeout time.Duration
 
-	// Parallelism 控制对同一域名的最大并发请求数。
-	Parallelism int
+	// PerPage 是每页返回的条目数，最大 100。
+	PerPage int
 
-	// RateLimit 是对同一域名相邻两次请求之间的最小间隔。
-	RateLimit time.Duration
+	// RetryMax 是遇到 429 / 5xx 时的最大重试次数。
+	RetryMax int
+
+	// RetryBackoff 是首次重试前的等待基准时间，每次重试翻倍。
+	RetryBackoff time.Duration
+
+	// Token 是 GitHub Personal Access Token，用于提升 API 速率限制。
+	// 未认证请求限额为 60 次/小时；认证后为 5000 次/小时。
+	Token string
 }
 
-// defaultConfig 返回一组合理的默认爬虫配置。
+// defaultConfig 返回一组合理的默认 API 客户端配置。
 func defaultConfig() AdvisoryScraperConfig {
 	return AdvisoryScraperConfig{
 		MaxPages:       0,
 		RequestTimeout: defaultRequestTimeout,
-		Parallelism:    defaultParallelism,
-		RateLimit:      defaultRateLimit,
+		PerPage:        defaultPerPage,
+		RetryMax:       defaultRetryMax,
+		RetryBackoff:   defaultRetryBackoff,
 	}
 }
 
-// GithubAdvisoryService 负责协调 GitHub 安全公告的抓取与持久化流程。
-// 内部使用 colly 异步爬虫抓取列表页，解析公告卡片后批量写入数据库。
+// GithubAdvisoryService 负责通过 GitHub REST API 拉取安全公告并持久化到数据库。
 type GithubAdvisoryService struct {
 	repo   *repository.GithubAdvisoryRepository
 	config AdvisoryScraperConfig
+	client *http.Client
 }
 
 // NewGithubAdvisoryService 构造 GithubAdvisoryService 实例。
@@ -100,7 +105,7 @@ type GithubAdvisoryService struct {
 //
 // 参数：
 //   - repo : 已初始化的公告 Repository
-//   - cfg  : 可选的爬虫配置覆盖，传 nil 使用默认值
+//   - cfg  : 可选的配置覆盖，传 nil 使用默认值
 //
 // 返回：
 //   - *GithubAdvisoryService
@@ -116,114 +121,94 @@ func NewGithubAdvisoryService(
 		if cfg.RequestTimeout > 0 {
 			c.RequestTimeout = cfg.RequestTimeout
 		}
-		if cfg.Parallelism > 0 {
-			c.Parallelism = cfg.Parallelism
+		if cfg.PerPage > 0 && cfg.PerPage <= 100 {
+			c.PerPage = cfg.PerPage
 		}
-		if cfg.RateLimit > 0 {
-			c.RateLimit = cfg.RateLimit
+		if cfg.RetryMax > 0 {
+			c.RetryMax = cfg.RetryMax
+		}
+		if cfg.RetryBackoff > 0 {
+			c.RetryBackoff = cfg.RetryBackoff
+		}
+		if cfg.Token != "" {
+			c.Token = cfg.Token
 		}
 	}
-	return &GithubAdvisoryService{repo: repo, config: c}
+	return &GithubAdvisoryService{
+		repo:   repo,
+		config: c,
+		client: &http.Client{Timeout: c.RequestTimeout},
+	}
 }
 
-// ScrapeAndPersist 从 github.com/advisories 抓取安全公告列表页，
-// 解析每张公告卡片，并将结果批量 Upsert 到数据库。
-// 每页抓取完成后立即写库，控制内存占用。
+// ScrapeAndPersist 通过 GitHub REST API 分页拉取全部安全公告，
+// 每页拉取完成后立即批量 Upsert 到数据库，控制内存占用。
 //
 // 参数：
 //   - ctx : 请求上下文，支持超时与取消
 //
 // 返回：
 //   - int   : 本次运行成功持久化的公告总数
-//   - error : 抓取或写库失败时返回错误；部分成功时同时返回已持久化数量与错误
+//   - error : 请求或写库失败时返回错误
 func (s *GithubAdvisoryService) ScrapeAndPersist(ctx context.Context) (int, error) {
 	start := time.Now()
 	utilities.LogStart(component, "ScrapeAndPersist")
 
-	collector := s.buildCollector()
+	url := fmt.Sprintf("%s?per_page=%d", ApiBase, s.config.PerPage)
+	pageCount := 0
+	total := 0
 
-	var (
-		batch     []model.GithubAdvisory // 当前页解析出的公告缓冲
-		pageCount int                    // 已访问的页面计数
-		total     int                    // 累计持久化的公告数
-		scrapeErr error                  // 记录最后一次错误，供 Wait() 后检查
-	)
-
-	collector.OnHTML("div.Box-row.js-navigation-item", func(e *colly.HTMLElement) {
-		advisory, err := parseAdvisoryCard(e)
-		if err != nil {
-			utilities.Warn("[%s] 跳过无效卡片: %v", component, err)
-			return
-		}
-		batch = append(batch, *advisory)
-	})
-
-	// 跟随分页链接，访问下一页；若已达到 MaxPages 上限则停止。
-	collector.OnHTML("a[rel='next'], .next_page", func(e *colly.HTMLElement) {
-		if s.config.MaxPages > 0 && pageCount >= s.config.MaxPages {
-			utilities.LogProgress(component, "ScrapeAndPersist",
-				fmt.Sprintf("已达到页数上限 (%d)，停止翻页", s.config.MaxPages))
-			return
-		}
-		next := e.Attr("href")
-		if next == "" {
-			return
-		}
-		if !strings.HasPrefix(next, "http") {
-			next = "https://github.com" + next
-		}
-		_ = e.Request.Visit(next)
-	})
-
-	// 每次发起请求前记录日志并保存请求开始时间。
-	collector.OnRequest(func(r *colly.Request) {
+	for url != "" {
 		pageCount++
-		utilities.LogProgress(component, "ScrapeAndPersist",
-			fmt.Sprintf("正在访问第 %d 页: %s", pageCount, r.URL.String()))
-		r.Ctx.Put("start", time.Now())
-	})
 
-	// 收到响应后记录状态码与响应体大小。
-	collector.OnResponse(func(r *colly.Response) {
-		utilities.LogProgress(component, "ScrapeAndPersist",
-			fmt.Sprintf("第 %d 页响应: HTTP %d (%d 字节)",
-				pageCount, r.StatusCode, len(r.Body)))
-	})
-
-	// HTTP 请求失败时记录错误，后续在 Wait() 返回后统一处理。
-	collector.OnError(func(r *colly.Response, err error) {
-		scrapeErr = fmt.Errorf("HTTP %d on %s: %w", r.StatusCode, r.Request.URL, err)
-		utilities.LogError(component, "ScrapeAndPersist", scrapeErr, time.Since(start))
-	})
-
-	// 每页抓取完成后将当前缓冲批量写入数据库，然后清空缓冲。
-	collector.OnScraped(func(r *colly.Response) {
-		if len(batch) == 0 {
-			return
+		if s.config.MaxPages > 0 && pageCount > s.config.MaxPages {
+			utilities.LogProgress(component, "ScrapeAndPersist",
+				fmt.Sprintf("已达到页数上限 (%d)，停止拉取", s.config.MaxPages))
+			break
 		}
-		if err := s.repo.BulkUpsert(ctx, batch); err != nil {
-			scrapeErr = err
-			utilities.LogError(component, "ScrapeAndPersist", err, time.Since(start))
-			return
-		}
-		total += len(batch)
+
 		utilities.LogProgress(component, "ScrapeAndPersist",
-			fmt.Sprintf("已持久化 %d 条公告（累计: %d）", len(batch), total))
-		batch = batch[:0] // 清空缓冲，复用底层数组
-	})
+			fmt.Sprintf("正在请求第 %d 页: %s", pageCount, url))
 
-	// 访问入口页面，触发整个抓取流程。
-	if err := collector.Visit(advisoryBaseURL); err != nil {
-		utilities.LogError(component, "ScrapeAndPersist", err, time.Since(start))
-		return 0, fmt.Errorf("initial visit failed: %w", err)
-	}
+		// 带指数退避的请求，自动处理 429 / 5xx。
+		body, linkHeader, err := s.fetchWithRetry(ctx, url)
+		if err != nil {
+			utilities.LogError(component, "ScrapeAndPersist", err, time.Since(start),
+				fmt.Sprintf("page=%d", pageCount))
+			return total, err
+		}
 
-	// 等待所有异步请求完成。
-	collector.Wait()
+		// 将 JSON 数组解析为原始消息切片，再逐条转换为模型。
+		var raw []json.RawMessage
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return total, fmt.Errorf("第 %d 页 JSON 解析失败: %w", pageCount, err)
+		}
 
-	if scrapeErr != nil {
-		utilities.LogError(component, "ScrapeAndPersist", scrapeErr, time.Since(start))
-		return total, scrapeErr
+		advisories := make([]model.GithubAdvisory, 0, len(raw))
+		for _, item := range raw {
+			adv, err := parseAPIAdvisory(item)
+			if err != nil {
+				utilities.Warn("[%s] 跳过无效条目: %v", component, err)
+				continue
+			}
+			advisories = append(advisories, *adv)
+		}
+
+		utilities.LogProgress(component, "ScrapeAndPersist",
+			fmt.Sprintf("第 %d 页解析出 %d 条公告", pageCount, len(advisories)))
+
+		if len(advisories) > 0 {
+			if err := s.repo.BulkUpsert(ctx, advisories); err != nil {
+				utilities.LogError(component, "ScrapeAndPersist", err, time.Since(start))
+				return total, err
+			}
+			total += len(advisories)
+			utilities.LogProgress(component, "ScrapeAndPersist",
+				fmt.Sprintf("已持久化 %d 条公告（累计: %d）", len(advisories), total))
+		}
+
+		// 从 Link 响应头获取下一页 URL；为空则说明已到最后一页。
+		url = nextLink(linkHeader)
 	}
 
 	utilities.LogSuccess(component, "ScrapeAndPersist", time.Since(start),
@@ -233,164 +218,164 @@ func (s *GithubAdvisoryService) ScrapeAndPersist(ctx context.Context) (int, erro
 	return total, nil
 }
 
-// buildCollector 创建并配置 colly.Collector 实例。
-// 限制只允许访问 github.com 域名，启用异步模式，并应用速率限制规则。
-func (s *GithubAdvisoryService) buildCollector() *colly.Collector {
-	c := colly.NewCollector(
-		colly.AllowedDomains("github.com"),
-		colly.MaxDepth(defaultMaxDepth),
-		colly.Async(true),
-	)
-
-	// 随机轮换 User-Agent，降低被识别为爬虫的概率。
-	extensions.RandomUserAgent(c)
-
-	// 对 github.com 域名应用并发与速率限制规则。
-	_ = c.Limit(&colly.LimitRule{
-		DomainGlob:  "*github.com*",
-		Parallelism: s.config.Parallelism,
-		Delay:       s.config.RateLimit,
-		RandomDelay: s.config.RateLimit / 2, // 在固定间隔基础上叠加随机抖动
-	})
-
-	c.SetRequestTimeout(s.config.RequestTimeout)
-
-	return c
-}
-
-// parseAdvisoryCard 从列表页的单张公告卡片 HTML 元素中提取 GithubAdvisory 数据。
-//
-// GitHub 公告列表页的卡片结构（简化示意）：
-//
-//	<article class="Box-row">
-//	  <a href="/advisories/GHSA-xxxx-xxxx-xxxx">GHSA-xxxx-xxxx-xxxx</a>
-//	  <span class="Label">critical</span>
-//	  <p>漏洞摘要文本</p>
-//	  <relative-time datetime="2024-01-01T00:00:00Z">...</relative-time>
-//	</article>
+// fetchWithRetry 发起 GET 请求，遇到 429 或 5xx 时按指数退避策略自动重试。
+// 429 响应会优先读取 Retry-After 响应头决定等待时间。
 //
 // 参数：
-//   - e : colly 解析出的 HTML 元素，对应一张公告卡片
+//   - ctx : 请求上下文
+//   - url : 目标 URL
 //
 // 返回：
-//   - *model.GithubAdvisory : 解析成功时返回填充好的公告指针
-//   - error                 : 无法提取 GHSA ID 时返回错误
-func parseAdvisoryCard(e *colly.HTMLElement) (*model.GithubAdvisory, error) {
-	// 从卡片链接中提取 GHSA ID 和详情页 URL。
-	ghsaID, detailURL := extractGHSALink(e)
-	if ghsaID == "" {
-		return nil, fmt.Errorf("无法从卡片 HTML 中提取 GHSA ID")
-	}
+//   - []byte : 响应体字节切片
+//   - string : Link 响应头原始字符串（用于分页）
+//   - error  : 重试耗尽或非预期错误时返回
+func (s *GithubAdvisoryService) fetchWithRetry(ctx context.Context, url string) ([]byte, string, error) {
+	backoff := s.config.RetryBackoff
 
-	// 提取严重程度。
-	// 实际 HTML：<span title="Severity: high" class="Label Label--orange ...">High</span>
-	// 从 title 属性解析，格式固定为 "Severity: <level>"。
-	severityRaw := e.ChildAttr("span[title^='Severity:']", "title")
-	if severityRaw != "" {
-		// title 格式："Severity: high" -> 取冒号后半段
-		if idx := strings.Index(severityRaw, ":"); idx >= 0 {
-			severityRaw = strings.TrimSpace(severityRaw[idx+1:])
+	for attempt := 0; attempt <= s.config.RetryMax; attempt++ {
+		body, linkHeader, statusCode, err := s.doRequest(ctx, url)
+
+		if err == nil {
+			return body, linkHeader, nil
 		}
+
+		// 非 429 / 5xx 的错误不重试，直接返回。
+		if statusCode != 429 && (statusCode < 500 || statusCode >= 600) {
+			return nil, "", err
+		}
+
+		if attempt == s.config.RetryMax {
+			return nil, "", fmt.Errorf("请求 %s 失败，已重试 %d 次: %w", url, s.config.RetryMax, err)
+		}
+
+		wait := backoff
+		utilities.Warn("[%s] HTTP %d，第 %d/%d 次重试，等待 %v 后继续...",
+			component, statusCode, attempt+1, s.config.RetryMax, wait)
+
+		select {
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
+		case <-time.After(wait):
+		}
+
+		backoff *= 2 // 指数退避：2s → 4s → 8s → 16s → 32s
 	}
-	severity := normaliseSeverity(severityRaw)
 
-	// 提取漏洞摘要：取公告标题链接的文本内容。
-	// 实际 HTML：<a class="Link--primary ... js-navigation-open">标题文本</a>
-	summary := strings.TrimSpace(e.ChildText("a.js-navigation-open"))
-
-	// GitHub 公告列表页不含 <relative-time> 元素，发布时间留空，由详情页补充。
-	var publishedAt *time.Time
-
-	advisory := &model.GithubAdvisory{
-		GHSAID:      ghsaID,
-		URL:         "https://api.github.com/advisories/" + ghsaID,
-		HTMLURL:     detailURL,
-		Summary:     summary,
-		Severity:    severity,
-		Type:        "reviewed",
-		PublishedAt: publishedAt,
-		// Vulnerabilities 和 References 由详情页富化步骤填充，此处初始化为空数组。
-		Vulnerabilities: json.RawMessage("[]"),
-		References:      json.RawMessage("[]"),
-	}
-
-	return advisory, nil
+	return nil, "", fmt.Errorf("fetchWithRetry: 不应到达此处")
 }
 
-// extractGHSALink 遍历元素内所有 <a href> 链接，
-// 找到第一个包含 /advisories/GHSA- 路径的链接，返回 GHSA ID 和绝对 HTML URL。
-// 若未找到匹配链接，两个返回值均为空字符串。
+// doRequest 发起单次 HTTP GET 请求，返回响应体、Link 头、状态码和错误。
 //
 // 参数：
-//   - e : colly HTML 元素
+//   - ctx : 请求上下文
+//   - url : 目标 URL
 //
 // 返回：
-//   - ghsaID  : GHSA 标识符（如 GHSA-xxxx-xxxx-xxxx），未找到时为空字符串
-//   - htmlURL : 公告详情页的绝对 URL，未找到时为空字符串
-func extractGHSALink(e *colly.HTMLElement) (ghsaID, htmlURL string) {
-	e.ForEach("a[href]", func(_ int, el *colly.HTMLElement) {
-		if ghsaID != "" {
-			return // 已找到，跳过后续链接
-		}
-		href := el.Attr("href")
-		if strings.Contains(href, "/advisories/GHSA-") {
-			parts := strings.Split(href, "/")
-			for _, p := range parts {
-				if strings.HasPrefix(p, "GHSA-") {
-					ghsaID = p
-					if strings.HasPrefix(href, "http") {
-						htmlURL = href
-					} else {
-						// 相对路径补全为绝对 URL
-						htmlURL = "https://github.com" + href
-					}
-					return
-				}
+//   - []byte : 响应体
+//   - string : Link 响应头
+//   - int    : HTTP 状态码（请求失败时为 0）
+//   - error  : 非 2xx 状态码或网络错误时返回
+func (s *GithubAdvisoryService) doRequest(ctx context.Context, url string) ([]byte, string, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("构建请求失败: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	// 若配置了 Token，添加 Authorization 头以提升速率限制至 5000 次/小时。
+	if s.config.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+s.config.Token)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("HTTP 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", resp.StatusCode, fmt.Errorf("读取响应体失败: %w", err)
+	}
+
+	if resp.StatusCode == 429 {
+		// 优先读取 Retry-After 头决定等待时间。
+		wait := s.config.RetryBackoff
+		if ra := resp.Header.Get("Retry-After"); ra != "" {
+			if secs, err := strconv.Atoi(ra); err == nil {
+				wait = time.Duration(secs) * time.Second
 			}
 		}
-	})
-	return
+		return nil, "", 429, fmt.Errorf("HTTP 429 Too Many Requests，建议等待 %v", wait)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", resp.StatusCode,
+			fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	return body, resp.Header.Get("Link"), resp.StatusCode, nil
 }
 
-// normaliseSeverity 将页面上的原始严重程度标签文本映射为
-// GitHub Advisory API 规范的枚举值：low | medium | high | critical。
-// 无法识别的输入统一返回 "unknown"。
-//
-// 参数：
-//   - raw : 从 HTML 标签中提取的原始文本（大小写不敏感）
-//
-// 返回：
-//   - string : 规范化后的严重程度字符串
-func normaliseSeverity(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "critical":
-		return "critical"
-	case "high":
-		return "high"
-	case "moderate", "medium":
-		return "medium"
-	case "low":
-		return "low"
-	default:
-		return "unknown"
-	}
+// apiAdvisoryRaw 是 GitHub Advisory API 响应的原始 JSON 结构，
+// 仅映射需要的字段，其余字段通过 json.RawMessage 保留原始 JSON。
+type apiAdvisoryRaw struct {
+	GHSAID          string          `json:"ghsa_id"`
+	CVEID           *string         `json:"cve_id"`
+	URL             string          `json:"url"`
+	HTMLURL         string          `json:"html_url"`
+	Summary         string          `json:"summary"`
+	Description     string          `json:"description"`
+	Type            string          `json:"type"`
+	Severity        string          `json:"severity"`
+	PublishedAt     *time.Time      `json:"published_at"`
+	UpdatedAt       *time.Time      `json:"updated_at"`
+	WithdrawnAt     *time.Time      `json:"withdrawn_at"`
+	Vulnerabilities json.RawMessage `json:"vulnerabilities"`
+	References      json.RawMessage `json:"references"`
 }
 
-// parseRelativeTime 将 RFC 3339 格式的日期时间字符串解析为 *time.Time。
-// 解析失败或输入为空时返回 nil，调用方将其视为可选字段处理。
+// parseAPIAdvisory 将单条 API 响应 JSON 转换为 model.GithubAdvisory。
 //
 // 参数：
-//   - raw : RFC 3339 格式的日期时间字符串（如 "2024-01-01T00:00:00Z"）
+//   - raw : 单条公告的原始 JSON 字节
 //
 // 返回：
-//   - *time.Time : 解析成功时返回时间指针，失败或空输入时返回 nil
-func parseRelativeTime(raw string) *time.Time {
-	if raw == "" {
-		return nil
+//   - *model.GithubAdvisory : 转换成功时返回填充好的公告指针
+//   - error                 : JSON 解析失败或 GHSA ID 为空时返回错误
+func parseAPIAdvisory(raw json.RawMessage) (*model.GithubAdvisory, error) {
+	var a apiAdvisoryRaw
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, fmt.Errorf("JSON 反序列化失败: %w", err)
 	}
-	t, err := time.Parse(time.RFC3339, raw)
-	if err != nil {
-		return nil
+	if a.GHSAID == "" {
+		return nil, fmt.Errorf("ghsa_id 为空，跳过该条目")
 	}
-	return &t
+
+	// Vulnerabilities / References 为 null 时替换为空 JSON 数组，避免数据库写入 NULL。
+	if len(a.Vulnerabilities) == 0 || string(a.Vulnerabilities) == "null" {
+		a.Vulnerabilities = json.RawMessage("[]")
+	}
+	if len(a.References) == 0 || string(a.References) == "null" {
+		a.References = json.RawMessage("[]")
+	}
+
+	return &model.GithubAdvisory{
+		GHSAID:          a.GHSAID,
+		CVEID:           a.CVEID,
+		URL:             a.URL,
+		HTMLURL:         a.HTMLURL,
+		Summary:         a.Summary,
+		Description:     a.Description,
+		Type:            a.Type,
+		Severity:        a.Severity,
+		PublishedAt:     a.PublishedAt,
+		UpdatedAt:       a.UpdatedAt,
+		WithdrawnAt:     a.WithdrawnAt,
+		Vulnerabilities: a.Vulnerabilities,
+		References:      a.References,
+	}, nil
 }
