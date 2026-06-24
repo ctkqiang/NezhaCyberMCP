@@ -101,13 +101,15 @@ func (d *Database) Close() error {
 func buildDSN(cfg DatabaseConfiguration) (gorm.Dialector, error) {
 	switch cfg.Type {
 	case PostgreSQL:
-		// PostgreSQL DSN 使用键值对格式，SSLMode 可选。
-		var b strings.Builder
-		fmt.Fprintf(&b, "host=%s user=%s password=%s dbname=%s port=%s",
-			cfg.Host, cfg.User, cfg.Password, cfg.DBName, cfg.Port)
+		// PostgreSQL DSN 使用键值对格式。
+		// SSLMode 未显式指定时默认为 disable，兼容本地 Docker 等不开 TLS 的环境。
+		sslMode := "disable"
 		if cfg.SSLMode != nil {
-			fmt.Fprintf(&b, " sslmode=%s", *cfg.SSLMode)
+			sslMode = *cfg.SSLMode
 		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+			cfg.Host, cfg.User, cfg.Password, cfg.DBName, cfg.Port, sslMode)
 		return postgres.Open(b.String()), nil
 
 	case MySQL:

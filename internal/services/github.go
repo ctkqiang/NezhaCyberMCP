@@ -149,8 +149,7 @@ func (s *GithubAdvisoryService) ScrapeAndPersist(ctx context.Context) (int, erro
 		scrapeErr error                  // 记录最后一次错误，供 Wait() 后检查
 	)
 
-	// 匹配列表页上的每张公告卡片，解析后追加到当前页缓冲。
-	collector.OnHTML("div[data-testid='advisory-list-item'], .js-advisory-list-item, article.Box-row", func(e *colly.HTMLElement) {
+	collector.OnHTML("div.Box-row.js-navigation-item", func(e *colly.HTMLElement) {
 		advisory, err := parseAdvisoryCard(e)
 		if err != nil {
 			utilities.Warn("[%s] 跳过无效卡片: %v", component, err)
@@ -283,21 +282,24 @@ func parseAdvisoryCard(e *colly.HTMLElement) (*model.GithubAdvisory, error) {
 		return nil, fmt.Errorf("无法从卡片 HTML 中提取 GHSA ID")
 	}
 
-	// 提取严重程度标签并规范化为标准枚举值。
-	severity := normaliseSeverity(
-		e.ChildText(".Label--attention, .Label--danger, .Label--warning, .Label--success, [data-severity]"),
-	)
-
-	// 提取漏洞摘要，优先取 <p> 标签，回退到标题标签。
-	summary := strings.TrimSpace(
-		e.ChildText("p, .advisory-summary, [data-testid='advisory-summary']"),
-	)
-	if summary == "" {
-		summary = strings.TrimSpace(e.ChildText("h3, h4"))
+	// 提取严重程度。
+	// 实际 HTML：<span title="Severity: high" class="Label Label--orange ...">High</span>
+	// 从 title 属性解析，格式固定为 "Severity: <level>"。
+	severityRaw := e.ChildAttr("span[title^='Severity:']", "title")
+	if severityRaw != "" {
+		// title 格式："Severity: high" -> 取冒号后半段
+		if idx := strings.Index(severityRaw, ":"); idx >= 0 {
+			severityRaw = strings.TrimSpace(severityRaw[idx+1:])
+		}
 	}
+	severity := normaliseSeverity(severityRaw)
 
-	// 解析 <relative-time> 或 <time-ago> 元素的 datetime 属性为 *time.Time。
-	publishedAt := parseRelativeTime(e.ChildAttr("relative-time, time-ago", "datetime"))
+	// 提取漏洞摘要：取公告标题链接的文本内容。
+	// 实际 HTML：<a class="Link--primary ... js-navigation-open">标题文本</a>
+	summary := strings.TrimSpace(e.ChildText("a.js-navigation-open"))
+
+	// GitHub 公告列表页不含 <relative-time> 元素，发布时间留空，由详情页补充。
+	var publishedAt *time.Time
 
 	advisory := &model.GithubAdvisory{
 		GHSAID:      ghsaID,
