@@ -39,7 +39,15 @@ func main() {
 	}
 }
 
-// run 初始化所有依赖，启动定时任务调度器，并阻塞直到收到退出信号。
+// run 初始化所有依赖，并行启动定时任务调度器与 MCP stdio 服务器，
+// 阻塞直到收到退出信号或 MCP 服务器退出。
+//
+// 启动顺序：
+//  1. 建立数据库连接（通过 AdvisoryJob 内部完成）
+//  2. 执行数据库迁移（幂等）
+//  3. 立即执行一次数据同步（RunNow）
+//  4. 启动定时任务调度器（goroutine）
+//  5. 构建 MCPServer 并以 stdio 模式运行（阻塞主 goroutine）
 //
 // 参数：
 //   - ctx : 根上下文，携带信号取消能力
@@ -87,13 +95,13 @@ func run(ctx context.Context) error {
 		RateLimit:      500 * time.Millisecond,
 	}
 
-	advisoryJob, err := job.NewAdvisoryJob(dbCfg, scraperCfg, mycertCfg, circlCfg, timezone,
+	advisoryJob, err := job.NewAdvisoryJob(
+		dbCfg, scraperCfg, mycertCfg, circlCfg, timezone,
 		IsGithubAdvisoryTurnOn,
 		IsMycertAdvisoryTurnOn,
 		IsCirclCVETurnOn,
 	)
 	if err != nil {
-
 		utilities.LogError("Main", "Startup", err, 0)
 		return fmt.Errorf("初始化定时任务失败: %w", err)
 	}
@@ -103,6 +111,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
 
+	// 启动时立即执行一次全量同步，确保数据库有最新数据供 MCP 工具查询。
 	advisoryJob.RunNow(ctx)
 
 	if err := advisoryJob.Start(ctx); err != nil {
@@ -111,13 +120,36 @@ func run(ctx context.Context) error {
 	}
 	defer advisoryJob.Stop()
 
+	// 为 MCP 服务器建立独立的长连接，与定时任务的短连接隔离。
+	// 定时任务每次触发时自行建立/关闭连接；MCP 服务器需要持久连接响应实时查询。
+	mcpDB, err := services.InitDatabase(ctx, dbCfg)
+	if err != nil {
+		utilities.LogError("Main", "Startup", err, 0, "step=InitMCPDatabase")
+		return fmt.Errorf("初始化 MCP 数据库连接失败: %w", err)
+	}
+	defer func() {
+		if closeErr := mcpDB.Close(); closeErr != nil {
+			utilities.Warn("关闭 MCP 数据库连接失败: %v", closeErr)
+		}
+	}()
+
+	mcpServer := services.NewMCPServer(mcpDB.DB())
+
 	utilities.LogProgress("Main", "Startup",
-		fmt.Sprintf("服务已就绪，定时任务将在每日 00:00 (%s) 同步 GitHub Advisory", timezone),
+		fmt.Sprintf(
+			"MCP 服务器已就绪（stdio 模式），定时任务将按计划（时区 %s）同步数据",
+			timezone,
+		),
 	)
 
-	<-ctx.Done()
+	// Run 以 stdio 传输模式阻塞运行，直到客户端断开连接或 ctx 被取消。
+	// 当进程收到 SIGINT/SIGTERM 时，ctx 取消会同时终止 MCP 服务器和定时任务。
+	if err := mcpServer.Run(ctx); err != nil {
+		utilities.LogError("Main", "MCPServer", err, 0)
+		return fmt.Errorf("MCP 服务器异常退出: %w", err)
+	}
 
-	utilities.LogProgress("Main", "Shutdown", "收到退出信号，正在优雅关闭...")
+	utilities.LogProgress("Main", "Shutdown", "MCP 服务器已正常关闭")
 	return nil
 }
 
