@@ -53,9 +53,64 @@ func (r *MycertAdvisoryRepository) Migrate(ctx context.Context) error {
 	return nil
 }
 
+// Upsert 插入或更新单条 MyCERT 公告记录。
+// 以 advisory_id（主键）作为冲突检测列；冲突时更新所有可变字段，
+// 确保数据库中始终保存最新版本的公告内容。
+//
+// 业务规则：
+//   - 新记录：直接插入
+//   - 已存在（advisory_id 冲突）：更新 title、published_at、category、
+//     summary、detail_url、full_content、scraped_at
+//
+// 参数：
+//   - ctx      : 请求上下文
+//   - advisory : 待写入的公告指针，AdvisoryID 字段不可为空
+//
+// 返回：
+//   - error : 写入失败时返回包装后的错误，成功时返回 nil
+func (r *MycertAdvisoryRepository) Upsert(ctx context.Context, advisory *model.MycertAdvisory) error {
+	start := time.Now()
+	utilities.LogStart(mycertComponent, "Upsert")
+
+	result := r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			// 明确指定冲突检测列为主键 advisory_id，避免依赖数据库隐式推断。
+			Columns: []clause.Column{{Name: "advisory_id"}},
+			// 冲突时更新所有非主键字段，保持数据与上游 MyCERT 网站同步。
+			DoUpdates: clause.AssignmentColumns([]string{
+				"title", "published_at", "category",
+				"summary", "detail_url", "full_content", "scraped_at",
+			}),
+		}).
+		Create(advisory)
+
+	if result.Error != nil {
+		utilities.LogError(mycertComponent, "Upsert", result.Error, time.Since(start),
+			"advisory_id="+advisory.AdvisoryID)
+		return fmt.Errorf("upsert mycert advisory %s: %w", advisory.AdvisoryID, result.Error)
+	}
+
+	action := "inserted"
+	if result.RowsAffected == 0 {
+		action = "skipped(no-change)"
+	} else if result.RowsAffected > 1 {
+		action = "updated"
+	}
+
+	utilities.LogSuccess(mycertComponent, "Upsert", time.Since(start),
+		"advisory_id="+advisory.AdvisoryID,
+		"action="+action,
+		fmt.Sprintf("rows_affected=%d", result.RowsAffected))
+	return nil
+}
+
 // BulkUpsert 在单个数据库事务中批量插入或更新 MyCERT 公告记录。
-// 以 AdvisoryID（主键）作为冲突判断依据，冲突时更新所有可变字段。
+// 以 advisory_id（主键）作为冲突检测列；冲突时更新所有可变字段。
 // 每批最多处理 100 条，任意一条失败将回滚整个事务，保证原子性。
+//
+// 业务规则：
+//   - 新记录：直接插入
+//   - 已存在（advisory_id 冲突）：更新除主键外的所有字段
 //
 // 参数：
 //   - ctx        : 请求上下文
@@ -71,10 +126,19 @@ func (r *MycertAdvisoryRepository) BulkUpsert(ctx context.Context, advisories []
 	start := time.Now()
 	utilities.LogStart(mycertComponent, "BulkUpsert")
 
+	total := len(advisories)
+	var rowsAffected int64
+
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.
 			Clauses(clause.OnConflict{
-				UpdateAll: true,
+				// 明确指定冲突检测列为主键 advisory_id。
+				Columns: []clause.Column{{Name: "advisory_id"}},
+				// 冲突时更新所有非主键字段，保持数据与上游 MyCERT 网站同步。
+				DoUpdates: clause.AssignmentColumns([]string{
+					"title", "published_at", "category",
+					"summary", "detail_url", "full_content", "scraped_at",
+				}),
 			}).
 			CreateInBatches(advisories, 100)
 
@@ -82,19 +146,21 @@ func (r *MycertAdvisoryRepository) BulkUpsert(ctx context.Context, advisories []
 			return result.Error
 		}
 
+		rowsAffected = result.RowsAffected
 		utilities.LogProgress(mycertComponent, "BulkUpsert",
-			fmt.Sprintf("已提交 %d 行", result.RowsAffected))
+			fmt.Sprintf("事务提交：input=%d rows_affected=%d", total, rowsAffected))
 		return nil
 	})
 
 	if err != nil {
 		utilities.LogError(mycertComponent, "BulkUpsert", err, time.Since(start),
-			fmt.Sprintf("batch_size=%d", len(advisories)))
-		return fmt.Errorf("bulk upsert %d mycert advisories: %w", len(advisories), err)
+			fmt.Sprintf("input=%d", total))
+		return fmt.Errorf("bulk upsert %d mycert advisories: %w", total, err)
 	}
 
 	utilities.LogSuccess(mycertComponent, "BulkUpsert", time.Since(start),
-		fmt.Sprintf("total=%d", len(advisories)))
+		fmt.Sprintf("input=%d", total),
+		fmt.Sprintf("rows_affected=%d", rowsAffected))
 	return nil
 }
 
@@ -108,6 +174,8 @@ func (r *MycertAdvisoryRepository) BulkUpsert(ctx context.Context, advisories []
 //   - error : 查询失败时返回错误
 func (r *MycertAdvisoryRepository) Count(ctx context.Context) (int64, error) {
 	var count int64
-	result := r.db.WithContext(ctx).Model(&model.MycertAdvisory{}).Count(&count)
-	return count, result.Error
+	if err := r.db.WithContext(ctx).Model(&model.MycertAdvisory{}).Count(&count).Error; err != nil {
+		return 0, fmt.Errorf("count mycert_advisories: %w", err)
+	}
+	return count, nil
 }
