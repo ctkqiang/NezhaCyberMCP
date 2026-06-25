@@ -53,9 +53,67 @@ func (r *CirclCVERepository) Migrate(ctx context.Context) error {
 	return nil
 }
 
+// Upsert 插入或更新单条 CIRCL CVE 记录。
+// 以 cve_id（主键）作为冲突检测列；冲突时更新所有可变字段，
+// 确保数据库中始终保存最新版本的 CVE 内容。
+//
+// 业务规则：
+//   - 新记录：直接插入
+//   - 已存在（cve_id 冲突）：更新 state、assigner_org_id、assigner_short、title、
+//     description、severity、cwe_ids、affected、references、
+//     date_published、date_updated、date_reserved、scraped_at
+//
+// 参数：
+//   - ctx : 请求上下文
+//   - cve : 待写入的 CVE 指针，CVEID 字段不可为空
+//
+// 返回：
+//   - error : 写入失败时返回包装后的错误，成功时返回 nil
+func (r *CirclCVERepository) Upsert(ctx context.Context, cve *model.CirclCVE) error {
+	start := time.Now()
+	utilities.LogStart(circlComponent, "Upsert")
+
+	result := r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			// 明确指定冲突检测列为主键 cve_id，避免依赖数据库隐式推断。
+			Columns: []clause.Column{{Name: "cve_id"}},
+			// 冲突时更新所有非主键字段，保持数据与上游 CIRCL API 同步。
+			DoUpdates: clause.AssignmentColumns([]string{
+				"state", "assigner_org_id", "assigner_short",
+				"title", "description", "severity",
+				"cwe_ids", "affected", "references",
+				"date_published", "date_updated", "date_reserved", "scraped_at",
+			}),
+		}).
+		Create(cve)
+
+	if result.Error != nil {
+		utilities.LogError(circlComponent, "Upsert", result.Error, time.Since(start),
+			"cve_id="+cve.CVEID)
+		return fmt.Errorf("upsert circl cve %s: %w", cve.CVEID, result.Error)
+	}
+
+	action := "inserted"
+	if result.RowsAffected == 0 {
+		action = "skipped(no-change)"
+	} else if result.RowsAffected > 1 {
+		action = "updated"
+	}
+
+	utilities.LogSuccess(circlComponent, "Upsert", time.Since(start),
+		"cve_id="+cve.CVEID,
+		"action="+action,
+		fmt.Sprintf("rows_affected=%d", result.RowsAffected))
+	return nil
+}
+
 // BulkUpsert 在单个数据库事务中批量插入或更新 CIRCL CVE 记录。
-// 以 CVEID（主键）作为冲突判断依据，冲突时更新所有可变字段。
+// 以 cve_id（主键）作为冲突检测列；冲突时更新所有可变字段。
 // 每批最多处理 100 条，任意一条失败将回滚整个事务，保证原子性。
+//
+// 业务规则：
+//   - 新记录：直接插入
+//   - 已存在（cve_id 冲突）：更新除主键外的所有字段
 //
 // 参数：
 //   - ctx   : 请求上下文
@@ -71,23 +129,43 @@ func (r *CirclCVERepository) BulkUpsert(ctx context.Context, items []model.Circl
 	start := time.Now()
 	utilities.LogStart(circlComponent, "BulkUpsert")
 
+	total := len(items)
+	var rowsAffected int64
+
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.
 			Clauses(clause.OnConflict{
-				UpdateAll: true,
+				// 明确指定冲突检测列为主键 cve_id。
+				Columns: []clause.Column{{Name: "cve_id"}},
+				// 冲突时更新所有非主键字段，保持数据与上游 CIRCL API 同步。
+				DoUpdates: clause.AssignmentColumns([]string{
+					"state", "assigner_org_id", "assigner_short",
+					"title", "description", "severity",
+					"cwe_ids", "affected", "references",
+					"date_published", "date_updated", "date_reserved", "scraped_at",
+				}),
 			}).
 			CreateInBatches(items, 100)
-		return result.Error
+
+		if result.Error != nil {
+			return result.Error
+		}
+
+		rowsAffected = result.RowsAffected
+		utilities.LogProgress(circlComponent, "BulkUpsert",
+			fmt.Sprintf("事务提交：input=%d rows_affected=%d", total, rowsAffected))
+		return nil
 	})
 
 	if err != nil {
 		utilities.LogError(circlComponent, "BulkUpsert", err, time.Since(start),
-			fmt.Sprintf("rows=%d", len(items)))
+			fmt.Sprintf("input=%d", total))
 		return fmt.Errorf("bulk upsert circl_cves: %w", err)
 	}
 
 	utilities.LogSuccess(circlComponent, "BulkUpsert", time.Since(start),
-		fmt.Sprintf("rows=%d", len(items)))
+		fmt.Sprintf("input=%d", total),
+		fmt.Sprintf("rows_affected=%d", rowsAffected))
 	return nil
 }
 

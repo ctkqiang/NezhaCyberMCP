@@ -6,12 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"testing"
-	"time"
-
 	"nezha_cyber_mcp/internal/model"
 	"nezha_cyber_mcp/internal/repository"
 	"nezha_cyber_mcp/internal/services"
+	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -155,9 +154,7 @@ func TestCirclScraperConfig_Default(t *testing.T) {
 func TestCirclScraperConfig_Override(t *testing.T) {
 	repo := newCirclTestDB(t)
 	cfg := &services.CirclScraperConfig{
-		MaxPages:       3,
 		RequestTimeout: 10 * time.Second,
-		PerPage:        50,
 		RetryMax:       2,
 		RetryBackoff:   1 * time.Second,
 		RateLimit:      200 * time.Millisecond,
@@ -324,9 +321,7 @@ func TestCirclScrapeAndPersist_MockServer(t *testing.T) {
 
 	repo := newCirclTestDB(t)
 	svc := services.NewCirclCVEServiceWithBaseURL(repo, &services.CirclScraperConfig{
-		MaxPages:       1,
 		RequestTimeout: 5 * time.Second,
-		PerPage:        2,
 		RetryMax:       1,
 		RetryBackoff:   10 * time.Millisecond,
 		RateLimit:      0,
@@ -366,9 +361,7 @@ func TestCirclScrapeAndPersist_HTTP500_Retry(t *testing.T) {
 
 	repo := newCirclTestDB(t)
 	svc := services.NewCirclCVEServiceWithBaseURL(repo, &services.CirclScraperConfig{
-		MaxPages:       1,
 		RequestTimeout: 5 * time.Second,
-		PerPage:        10,
 		RetryMax:       3,
 		RetryBackoff:   10 * time.Millisecond,
 		RateLimit:      0,
@@ -398,7 +391,6 @@ func TestCirclScrapeAndPersist_HTTP404_NoRetry(t *testing.T) {
 
 	repo := newCirclTestDB(t)
 	svc := services.NewCirclCVEServiceWithBaseURL(repo, &services.CirclScraperConfig{
-		MaxPages:       1,
 		RequestTimeout: 5 * time.Second,
 		RetryMax:       3,
 		RetryBackoff:   10 * time.Millisecond,

@@ -81,9 +81,7 @@ func run(ctx context.Context) error {
 	// circlCfg 的 APIToken 从环境变量 CIRCL_API_TOKEN 读取，不在此处硬编码。
 	// CIRCL 公共 API 无需强制认证，Token 为空时以匿名方式访问。
 	circlCfg := &services.CirclScraperConfig{
-		MaxPages:       0,
 		RequestTimeout: 30 * time.Second,
-		PerPage:        100,
 		RetryMax:       5,
 		RetryBackoff:   2 * time.Second,
 		RateLimit:      500 * time.Millisecond,
