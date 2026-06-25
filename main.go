@@ -8,6 +8,7 @@ import (
 	"nezha_cyber_mcp/internal/utilities"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -55,7 +56,7 @@ func main() {
 // 返回：
 //   - error : 初始化失败时返回错误
 func run(ctx context.Context) error {
-	utilities.LogStart("Main", "Startup")
+	utilities.LogProgress("Main", "Startup", "正在初始化...")
 
 	dbCfg := services.DatabaseConfiguration{
 		Type:            services.PostgreSQL,
@@ -167,4 +168,69 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// isInvalidAWSCredential 判断一个 AWS 凭证值是否为无效占位符。
+//
+// 无效条件（满足任意一条即判定为无效）：
+//  1. 空字符串
+//  2. 以 "multiple " 或 "muleiplte " 开头（含拼写错误变体，大小写不敏感）
+//     涵盖："multiple x", "multiple xxx", "multiple xxxxxxxxxxxxxxxxxxxxxxxxotr",
+//     "muleiplte x" 等所有 "multiple <任意内容>" 形式的占位符
+//  3. 整个字符串由同一个字符重复三次或以上组成
+//     涵盖："xxx", "xxxxxxxxxxx" 等纯重复占位符
+func isInvalidAWSCredential(v string) bool {
+	if v == "" {
+		return true
+	}
+
+	lower := strings.ToLower(v)
+	for _, prefix := range []string{"multiple ", "muleiplte "} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+
+	if len(v) >= 3 {
+		allSame := true
+		for i := 1; i < len(v); i++ {
+			if v[i] != v[0] {
+				allSame = false
+				break
+			}
+		}
+		if allSame {
+			return true
+		}
+	}
+
+	return false
+}
+
+func IsRunInAWS() bool {
+	isAws := getEnv("IS_AWS", "false") == "true"
+
+	utilities.LogProgress("Main", "IsRunInAWS", fmt.Sprintf("IS_AWS=%v", isAws))
+
+	if !isAws {
+		return false
+	}
+
+	keyID := getEnv("AWS_ACCESS_KEY_ID", "")
+	secretKey := getEnv("AWS_SECRET_ACCESS_KEY", "")
+
+	if isInvalidAWSCredential(keyID) {
+		err := fmt.Errorf("AWS_ACCESS_KEY_ID 缺失或包含无效占位符值 %q", keyID)
+		utilities.LogError("Main", "IsRunInAWS", err, 0, "key=AWS_ACCESS_KEY_ID")
+		return false
+	}
+
+	if isInvalidAWSCredential(secretKey) {
+		err := fmt.Errorf("AWS_SECRET_ACCESS_KEY 缺失或包含无效占位符值 %q", secretKey)
+		utilities.LogError("Main", "IsRunInAWS", err, 0, "key=AWS_SECRET_ACCESS_KEY")
+		return false
+	}
+
+	utilities.LogProgress("Main", "IsRunInAWS", "AWS 凭证校验通过")
+	return true
 }
