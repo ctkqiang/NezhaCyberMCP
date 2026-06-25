@@ -3,10 +3,9 @@ package repository
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"nezha_cyber_mcp/internal/model"
 	"nezha_cyber_mcp/internal/utilities"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -156,7 +155,6 @@ func (r *CirclCVERepository) BulkUpsert(ctx context.Context, items []model.Circl
 			fmt.Sprintf("事务提交：input=%d rows_affected=%d", total, rowsAffected))
 		return nil
 	})
-
 	if err != nil {
 		utilities.LogError(circlComponent, "BulkUpsert", err, time.Since(start),
 			fmt.Sprintf("input=%d", total))
