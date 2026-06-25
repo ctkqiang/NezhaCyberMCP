@@ -16,10 +16,10 @@ const component = "AdvisoryJob"
 // AdvisoryJob 封装了 GitHub 和 MyCERT 安全公告定时同步任务。
 // 内部持有一个 cron 调度器，按照指定时区的 cron 表达式定期触发抓取流程。
 type AdvisoryJob struct {
-	scheduler      *cron.Cron
-	dbCfg          services.DatabaseConfiguration
-	scraperCfg     *services.AdvisoryScraperConfig
-	mycertCfg      *services.MycertScraperConfig
+	scheduler  *cron.Cron
+	dbCfg      services.DatabaseConfiguration
+	scraperCfg *services.AdvisoryScraperConfig
+	mycertCfg  *services.MycertScraperConfig
 }
 
 // NewAdvisoryJob 构造 AdvisoryJob 实例。
@@ -113,8 +113,8 @@ func (j *AdvisoryJob) MigrateAll(ctx context.Context) error {
 // 返回：
 //   - error : 注册 cron 表达式失败时返回错误
 func (j *AdvisoryJob) Start(ctx context.Context) error {
-	// "0 0 * * *" 表示每天 00:00:00 触发（标准 5 字段格式：分 时 日 月 周）。
-	_, err := j.scheduler.AddFunc("0 0 * * *", func() {
+	// "0 */3 * * *" 表示每 3 小时整点触发一次（00:00 / 03:00 / 06:00 … 21:00）。
+	_, err := j.scheduler.AddFunc("0 */3 * * *", func() {
 		j.run(ctx)
 	})
 	if err != nil {
@@ -124,7 +124,7 @@ func (j *AdvisoryJob) Start(ctx context.Context) error {
 	j.scheduler.Start()
 
 	utilities.LogProgress(component, "Start",
-		"定时任务已启动，将在每日 00:00 执行 GitHub Advisory 同步")
+		"定时任务已启动，将每 3 小时执行一次 GitHub Advisory 与 MyCERT 同步")
 
 	return nil
 }

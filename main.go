@@ -69,6 +69,7 @@ func run(ctx context.Context) error {
 
 	advisoryJob, err := job.NewAdvisoryJob(dbCfg, scraperCfg, mycertCfg, timezone)
 	if err != nil {
+
 		utilities.LogError("Main", "Startup", err, 0)
 		return fmt.Errorf("初始化定时任务失败: %w", err)
 	}
@@ -80,7 +81,8 @@ func run(ctx context.Context) error {
 	defer advisoryJob.Stop()
 
 	utilities.LogProgress("Main", "Startup",
-		fmt.Sprintf("服务已就绪，定时任务将在每日 00:00 (%s) 同步 GitHub Advisory", timezone))
+		fmt.Sprintf("服务已就绪，定时任务将在每日 00:00 (%s) 同步 GitHub Advisory", timezone),
+	)
 
 	<-ctx.Done()
 
