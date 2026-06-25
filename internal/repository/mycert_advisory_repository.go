@@ -3,10 +3,9 @@ package repository
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"nezha_cyber_mcp/internal/model"
 	"nezha_cyber_mcp/internal/utilities"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -74,9 +73,7 @@ func (r *MycertAdvisoryRepository) Upsert(ctx context.Context, advisory *model.M
 
 	result := r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			// 明确指定冲突检测列为主键 advisory_id，避免依赖数据库隐式推断。
 			Columns: []clause.Column{{Name: "advisory_id"}},
-			// 冲突时更新所有非主键字段，保持数据与上游 MyCERT 网站同步。
 			DoUpdates: clause.AssignmentColumns([]string{
 				"title", "published_at", "category",
 				"summary", "detail_url", "full_content", "scraped_at",
@@ -151,7 +148,6 @@ func (r *MycertAdvisoryRepository) BulkUpsert(ctx context.Context, advisories []
 			fmt.Sprintf("事务提交：input=%d rows_affected=%d", total, rowsAffected))
 		return nil
 	})
-
 	if err != nil {
 		utilities.LogError(mycertComponent, "BulkUpsert", err, time.Since(start),
 			fmt.Sprintf("input=%d", total))
