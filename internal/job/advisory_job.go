@@ -13,10 +13,13 @@ import (
 
 const component = "AdvisoryJob"
 
+// AdvisoryJob 封装了 GitHub 和 MyCERT 安全公告定时同步任务。
+// 内部持有一个 cron 调度器，按照指定时区的 cron 表达式定期触发抓取流程。
 type AdvisoryJob struct {
-	scheduler  *cron.Cron
-	dbCfg      services.DatabaseConfiguration
-	scraperCfg *services.AdvisoryScraperConfig
+	scheduler      *cron.Cron
+	dbCfg          services.DatabaseConfiguration
+	scraperCfg     *services.AdvisoryScraperConfig
+	mycertCfg      *services.MycertScraperConfig
 }
 
 // NewAdvisoryJob 构造 AdvisoryJob 实例。
@@ -26,6 +29,7 @@ type AdvisoryJob struct {
 // 参数：
 //   - dbCfg      : 数据库连接配置，每次任务触发时重新建立连接
 //   - scraperCfg : GitHub API 客户端配置
+//   - mycertCfg  : MyCERT 爬虫配置，传 nil 使用默认值
 //   - timezone   : IANA 时区名称（如 "Asia/Shanghai"），空字符串时使用 UTC
 //
 // 返回：
@@ -34,6 +38,7 @@ type AdvisoryJob struct {
 func NewAdvisoryJob(
 	dbCfg services.DatabaseConfiguration,
 	scraperCfg *services.AdvisoryScraperConfig,
+	mycertCfg *services.MycertScraperConfig,
 	timezone string,
 ) (*AdvisoryJob, error) {
 	if timezone == "" {
@@ -51,7 +56,51 @@ func NewAdvisoryJob(
 		scheduler:  scheduler,
 		dbCfg:      dbCfg,
 		scraperCfg: scraperCfg,
+		mycertCfg:  mycertCfg,
 	}, nil
+}
+
+// MigrateAll 在程序启动时立即建立一次数据库连接，
+// 对 github_advisories 和 mycert_advisories 两张表执行幂等迁移，
+// 确保表结构在第一次 cron 触发前就已存在。
+//
+// 参数：
+//   - ctx : 请求上下文
+//
+// 返回：
+//   - error : 连接或迁移失败时返回错误
+func (j *AdvisoryJob) MigrateAll(ctx context.Context) error {
+	start := time.Now()
+	utilities.LogStart(component, "MigrateAll")
+
+	db, err := services.InitDatabase(ctx, j.dbCfg)
+	if err != nil {
+		utilities.LogError(component, "MigrateAll", err, time.Since(start))
+		return fmt.Errorf("MigrateAll: 连接数据库失败: %w", err)
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			utilities.Warn("MigrateAll: 关闭数据库连接失败: %v", closeErr)
+		}
+	}()
+
+	githubRepo := repository.NewGithubAdvisoryRepository(db.DB())
+	if err := githubRepo.Migrate(ctx); err != nil {
+		utilities.LogError(component, "MigrateAll", err, time.Since(start),
+			"table=github_advisories")
+		return fmt.Errorf("MigrateAll: github_advisories: %w", err)
+	}
+
+	mycertRepo := repository.NewMycertAdvisoryRepository(db.DB())
+	if err := mycertRepo.Migrate(ctx); err != nil {
+		utilities.LogError(component, "MigrateAll", err, time.Since(start),
+			"table=mycert_advisories")
+		return fmt.Errorf("MigrateAll: mycert_advisories: %w", err)
+	}
+
+	utilities.LogSuccess(component, "MigrateAll", time.Since(start),
+		"tables=github_advisories,mycert_advisories")
+	return nil
 }
 
 // Start 向调度器注册每日 00:00 触发的任务，并启动调度器。
@@ -119,18 +168,41 @@ func (j *AdvisoryJob) run(ctx context.Context) {
 		return
 	}
 
-	svc := services.NewGithubAdvisoryService(repo, j.scraperCfg)
+	githubSvc := services.NewGithubAdvisoryService(repo, j.scraperCfg)
 
-	total, err := svc.ScrapeAndPersist(ctx)
+	githubTotal, err := githubSvc.ScrapeAndPersist(ctx)
 	if err != nil {
 		utilities.LogError(component, "Run", err, time.Since(start),
-			"step=ScrapeAndPersist",
-			fmt.Sprintf("partial_total=%d", total))
+			"step=GitHub.ScrapeAndPersist",
+			fmt.Sprintf("partial_total=%d", githubTotal))
 		return
 	}
 
-	count, _ := repo.Count(ctx)
-	utilities.LogSuccess(component, "Run", time.Since(start),
-		fmt.Sprintf("scraped_this_run=%d", total),
-		fmt.Sprintf("total_in_db=%d", count))
+	githubCount, _ := repo.Count(ctx)
+	utilities.LogSuccess(component, "Run.GitHub", time.Since(start),
+		fmt.Sprintf("scraped_this_run=%d", githubTotal),
+		fmt.Sprintf("total_in_db=%d", githubCount))
+
+	mycertRepo := repository.NewMycertAdvisoryRepository(db.DB())
+
+	if err := mycertRepo.Migrate(ctx); err != nil {
+		utilities.LogError(component, "Run", err, time.Since(start),
+			"step=MyCERT.Migrate")
+		return
+	}
+
+	mycertSvc := services.NewMycertAdvisoryService(mycertRepo, j.mycertCfg)
+
+	mycertTotal, err := mycertSvc.ScrapeAndPersist(ctx)
+	if err != nil {
+		utilities.LogError(component, "Run", err, time.Since(start),
+			"step=MyCERT.ScrapeAndPersist",
+			fmt.Sprintf("partial_total=%d", mycertTotal))
+		return
+	}
+
+	mycertCount, _ := mycertRepo.Count(ctx)
+	utilities.LogSuccess(component, "Run.MyCERT", time.Since(start),
+		fmt.Sprintf("scraped_this_run=%d", mycertTotal),
+		fmt.Sprintf("total_in_db=%d", mycertCount))
 }

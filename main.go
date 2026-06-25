@@ -61,7 +61,13 @@ func run(ctx context.Context) error {
 
 	timezone := getEnv("DB_TIMEZONE", "Asia/Shanghai")
 
-	advisoryJob, err := job.NewAdvisoryJob(dbCfg, scraperCfg, timezone)
+	mycertCfg := &services.MycertScraperConfig{
+		MaxPages:       0,
+		RequestTimeout: 30 * time.Second,
+		FetchDetail:    true,
+	}
+
+	advisoryJob, err := job.NewAdvisoryJob(dbCfg, scraperCfg, mycertCfg, timezone)
 	if err != nil {
 		utilities.LogError("Main", "Startup", err, 0)
 		return fmt.Errorf("初始化定时任务失败: %w", err)

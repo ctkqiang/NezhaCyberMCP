@@ -1,22 +1,21 @@
-package repository
+package test
 
 import (
 	"context"
 	"encoding/json"
+	"nezha_cyber_mcp/internal/model"
+	"nezha_cyber_mcp/internal/repository"
 	"testing"
 	"time"
-
-	"nezha_cyber_mcp/internal/model"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-// newTestDB 创建一个内存 SQLite 数据库并自动迁移表结构。
-// 使用 SQLite 内存数据库使测试无需依赖外部数据库服务即可运行。
+// newTestDB 创建一个内存 SQLite 数据库并自动迁移 github_advisories 表结构。
 //
 // 参数：
-//   - t : 测试上下文，用于在初始化失败时终止测试
+//   - t : 测试上下文，初始化失败时终止测试
 //
 // 返回：
 //   - *gorm.DB : 已完成迁移的测试数据库连接
@@ -63,7 +62,7 @@ func sampleAdvisory(ghsaID string) model.GithubAdvisory {
 // 并通过 GetByGHSAID 确认数据已写入且字段值正确。
 func TestUpsert_Insert(t *testing.T) {
 	db := newTestDB(t)
-	repo := NewGithubAdvisoryRepository(db)
+	repo := repository.NewGithubAdvisoryRepository(db)
 	ctx := context.Background()
 
 	adv := sampleAdvisory("GHSA-test-0001-aaaa")
@@ -90,16 +89,14 @@ func TestUpsert_Insert(t *testing.T) {
 // 确保冲突时所有可变字段均被刷新为最新值。
 func TestUpsert_Update(t *testing.T) {
 	db := newTestDB(t)
-	repo := NewGithubAdvisoryRepository(db)
+	repo := repository.NewGithubAdvisoryRepository(db)
 	ctx := context.Background()
 
-	// 第一次写入原始数据。
 	adv := sampleAdvisory("GHSA-test-0002-bbbb")
 	if err := repo.Upsert(ctx, &adv); err != nil {
 		t.Fatalf("初始 Upsert 失败: %v", err)
 	}
 
-	// 修改字段后再次 Upsert，验证更新生效。
 	adv.Summary = "补丁发布后的更新摘要"
 	adv.Severity = "critical"
 	if err := repo.Upsert(ctx, &adv); err != nil {
@@ -122,7 +119,7 @@ func TestUpsert_Update(t *testing.T) {
 // 并通过 Count 确认数据库行数与写入数量一致。
 func TestBulkUpsert(t *testing.T) {
 	db := newTestDB(t)
-	repo := NewGithubAdvisoryRepository(db)
+	repo := repository.NewGithubAdvisoryRepository(db)
 	ctx := context.Background()
 
 	advisories := []model.GithubAdvisory{
@@ -148,7 +145,7 @@ func TestBulkUpsert(t *testing.T) {
 // 不应返回任何错误。
 func TestBulkUpsert_Empty(t *testing.T) {
 	db := newTestDB(t)
-	repo := NewGithubAdvisoryRepository(db)
+	repo := repository.NewGithubAdvisoryRepository(db)
 	ctx := context.Background()
 
 	if err := repo.BulkUpsert(ctx, nil); err != nil {
@@ -163,7 +160,7 @@ func TestBulkUpsert_Empty(t *testing.T) {
 // 而非将"记录不存在"视为错误。
 func TestGetByGHSAID_NotFound(t *testing.T) {
 	db := newTestDB(t)
-	repo := NewGithubAdvisoryRepository(db)
+	repo := repository.NewGithubAdvisoryRepository(db)
 	ctx := context.Background()
 
 	got, err := repo.GetByGHSAID(ctx, "GHSA-does-not-exist-0000")
@@ -178,7 +175,7 @@ func TestGetByGHSAID_NotFound(t *testing.T) {
 // TestCount_Empty 验证空表时 Count 返回 0。
 func TestCount_Empty(t *testing.T) {
 	db := newTestDB(t)
-	repo := NewGithubAdvisoryRepository(db)
+	repo := repository.NewGithubAdvisoryRepository(db)
 	ctx := context.Background()
 
 	count, err := repo.Count(ctx)
@@ -196,15 +193,12 @@ func TestMigrate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("打开 SQLite 失败: %v", err)
 	}
-	repo := NewGithubAdvisoryRepository(db)
+	repo := repository.NewGithubAdvisoryRepository(db)
 	ctx := context.Background()
 
-	// 第一次迁移，创建表结构。
 	if err := repo.Migrate(ctx); err != nil {
 		t.Fatalf("第一次 Migrate 失败: %v", err)
 	}
-
-	// 第二次迁移，验证幂等性。
 	if err := repo.Migrate(ctx); err != nil {
 		t.Fatalf("第二次 Migrate 失败（应为幂等操作）: %v", err)
 	}
