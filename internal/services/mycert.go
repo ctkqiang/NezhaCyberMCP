@@ -250,16 +250,17 @@ func (s *MycertAdvisoryService) scrapePage(ctx context.Context, pageURL string) 
 }
 
 // parseAdvisoryCard 从 <h4> 节点解析出单条公告的基础信息。
-// MyCERT 列表页结构：
+// MyCERT 列表页真实结构（通过 curl 验证）：
 //
-//	<h4>
-//	  <a href="/portal/advisory?id=MA-XXXX.XXXXXX">MA-XXXX.XXXXXX: MyCERT Advisory - ...</a>
-//	</h4>
-//	<ul>
-//	  <li>16 Jun 2026</li>
-//	  <li>Advisory</li>
+//	<h4>MA-XXXX.XXXXXX: MyCERT Advisory - ...</h4>
+//	<ul class="meta">
+//	  <li><small><i ...></i> 25 Jun 2026</small></li>
+//	  <li><small><i ...></i> Advisory</small></li>
 //	</ul>
-//	<p>摘要文本...</p>
+//	<div class="desc-news"><p>摘要文本...</p></div>
+//
+// 注意：<h4> 内无 <a> 子节点，标题文本直接在 <h4> 里；
+// 详情页 URL 通过 AdvisoryID 拼接 mycertDetailBase 得到。
 //
 // 参数：
 //   - h4 : <h4> DOM 节点
@@ -267,22 +268,9 @@ func (s *MycertAdvisoryService) scrapePage(ctx context.Context, pageURL string) 
 // 返回：
 //   - *model.MycertAdvisory : 解析成功时返回公告指针，无法提取 ID 时返回 nil
 func parseAdvisoryCard(h4 *html.Node) *model.MycertAdvisory {
-	var (
-		title, href string
-		publishedAt *time.Time
-		category    string
-		summary     string
-	)
+	title := strings.TrimSpace(textContent(h4))
 
-	for c := h4.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.ElementNode && c.Data == "a" {
-			title = strings.TrimSpace(textContent(c))
-			href = attrVal(c, "href")
-			break
-		}
-	}
-
-	if title == "" || href == "" {
+	if title == "" {
 		return nil
 	}
 
@@ -295,10 +283,13 @@ func parseAdvisoryCard(h4 *html.Node) *model.MycertAdvisory {
 		return nil
 	}
 
-	detailURL := href
-	if strings.HasPrefix(href, "/") {
-		detailURL = mycertOrigin + href
-	}
+	detailURL := mycertDetailBase + advisoryID
+
+	var (
+		publishedAt *time.Time
+		category    string
+		summary     string
+	)
 
 	sibling := h4.NextSibling
 
@@ -308,27 +299,34 @@ func parseAdvisoryCard(h4 *html.Node) *model.MycertAdvisory {
 			case "ul":
 				liIdx := 0
 				for li := sibling.FirstChild; li != nil; li = li.NextSibling {
-					if li.Type == html.ElementNode && li.Data == "li" {
-						text := strings.TrimSpace(textContent(li))
-						switch liIdx {
-						case 0:
-							if t, err := time.Parse("02 Jan 2006", text); err == nil {
-								publishedAt = &t
-							}
-						case 1:
-							category = text
-						}
-						liIdx++
+					if li.Type != html.ElementNode || li.Data != "li" {
+						continue
 					}
+					// 日期和分类文本嵌套在 <small> 里，用 textContent 提取纯文本后去除图标空白。
+					text := strings.TrimSpace(textContent(li))
+					switch liIdx {
+					case 0:
+						if t, err := time.Parse("02 Jan 2006", text); err == nil {
+							publishedAt = &t
+						}
+					case 1:
+						category = text
+					}
+					liIdx++
 				}
-			case "p":
-				summary = strings.TrimSpace(textContent(sibling))
+			case "div":
+				// 摘要在 <div class="desc-news"> 里，提取其纯文本作为摘要。
+				if strings.Contains(attrVal(sibling, "class"), "desc-news") {
+					summary = strings.TrimSpace(textContent(sibling))
+				}
 			case "h4":
 				sibling = nil
 				continue
 			}
 		}
-		sibling = sibling.NextSibling
+		if sibling != nil {
+			sibling = sibling.NextSibling
+		}
 	}
 
 	return &model.MycertAdvisory{

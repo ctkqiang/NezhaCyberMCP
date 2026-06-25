@@ -14,6 +14,17 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const (
+	// IsGithubAdvisoryTurnOn 控制是否启用 GitHub Advisory 数据源同步。
+	IsGithubAdvisoryTurnOn = false
+
+	// IsMycertAdvisoryTurnOn 控制是否启用 MyCERT 公告数据源同步。
+	IsMycertAdvisoryTurnOn = true
+
+	// IsCirclCVETurnOn 控制是否启用 CIRCL CVE Search API 数据源同步。
+	IsCirclCVETurnOn = true
+)
+
 func main() {
 	if err := godotenv.Load(); err != nil {
 		utilities.Warn("未找到 .env 文件，使用系统环境变量: %v", err)
@@ -67,12 +78,34 @@ func run(ctx context.Context) error {
 		FetchDetail:    true,
 	}
 
-	advisoryJob, err := job.NewAdvisoryJob(dbCfg, scraperCfg, mycertCfg, timezone)
+	// circlCfg 的 APIToken 从环境变量 CIRCL_API_TOKEN 读取，不在此处硬编码。
+	// CIRCL 公共 API 无需强制认证，Token 为空时以匿名方式访问。
+	circlCfg := &services.CirclScraperConfig{
+		MaxPages:       0,
+		RequestTimeout: 30 * time.Second,
+		PerPage:        100,
+		RetryMax:       5,
+		RetryBackoff:   2 * time.Second,
+		RateLimit:      500 * time.Millisecond,
+	}
+
+	advisoryJob, err := job.NewAdvisoryJob(dbCfg, scraperCfg, mycertCfg, circlCfg, timezone,
+		IsGithubAdvisoryTurnOn,
+		IsMycertAdvisoryTurnOn,
+		IsCirclCVETurnOn,
+	)
 	if err != nil {
 
 		utilities.LogError("Main", "Startup", err, 0)
 		return fmt.Errorf("初始化定时任务失败: %w", err)
 	}
+
+	if err := advisoryJob.MigrateAll(ctx); err != nil {
+		utilities.LogError("Main", "Startup", err, 0)
+		return fmt.Errorf("数据库迁移失败: %w", err)
+	}
+
+	advisoryJob.RunNow(ctx)
 
 	if err := advisoryJob.Start(ctx); err != nil {
 		utilities.LogError("Main", "Startup", err, 0)
