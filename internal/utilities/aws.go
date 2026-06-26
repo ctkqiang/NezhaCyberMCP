@@ -104,9 +104,9 @@ func awsEnv(key, fallback string) string {
 //   - true  : 未检测到任何云运行时，处于本地开发模式
 //   - false : 检测到至少一种云运行时
 func IsLocalMode() bool {
-	_, lambdaPort := os.LookupEnv("_LAMBDA_SERVER_PORT")
-	_, lambdaAPI := os.LookupEnv("AWS_LAMBDA_RUNTIME_API")
-	_, fcFunc := os.LookupEnv("FC_FUNCTION_NAME")
+	lambdaPort := os.Getenv("_LAMBDA_SERVER_PORT") != ""
+	lambdaAPI := os.Getenv("AWS_LAMBDA_RUNTIME_API") != ""
+	fcFunc := os.Getenv("FC_FUNCTION_NAME") != ""
 	onAWS := lambdaPort && lambdaAPI
 	onAliyun := fcFunc
 

@@ -57,27 +57,13 @@ func main() {
 func run(ctx context.Context) error {
 	utilities.LogProgress("Main", "Startup", "正在初始化...")
 
-	dbCfg := services.DatabaseConfiguration{
-		Type:            services.PostgreSQL,
-		Host:            getEnv("DB_HOST", "localhost"),
-		Port:            getEnv("DB_PORT", "5432"),
-		User:            getEnv("DB_USER", "postgres"),
-		Password:        getEnv("DB_PASSWORD", ""),
-		DBName:          getEnv("DB_NAME", "nezha_cyber"),
-		MaxOpenConns:    25,
-		MaxIdleConns:    5,
-		ConnMaxLifetime: 5 * time.Minute,
+	dbEnv, err := utilities.ResolveDBEnvironment()
+	if err != nil {
+		utilities.LogError("Main", "Startup", err, 0, "step=ResolveDBEnvironment")
+		return fmt.Errorf("数据库环境解析失败: %w", err)
 	}
 
-	if utilities.IsRunInAWS() {
-		dbCfg.Type = services.AmazonAuroraDSQL
-		dbCfg.Host = getEnv("DSQL_ENDPOINT", dbCfg.Host)
-		dbCfg.AWSRegion = utilities.AWSRegion("us-east-1")
-		utilities.LogProgress("Main", "Startup", "检测到 AWS 环境，已切换至 Aurora DSQL 驱动",
-			fmt.Sprintf("endpoint=%s", dbCfg.Host),
-			fmt.Sprintf("region=%s", dbCfg.AWSRegion),
-		)
-	}
+	dbCfg := buildDBConfig(dbEnv)
 
 	scraperCfg := &services.AdvisoryScraperConfig{
 		MaxPages:       0,
@@ -168,6 +154,54 @@ func run(ctx context.Context) error {
 	return nil
 }
 
+// buildDBConfig 根据已解析的运行时环境类型构造 DatabaseConfiguration。
+//
+// 本地环境（DBEnvLocal）：
+//   - 驱动固定为 PostgreSQL，从 DB_* 环境变量读取连接参数。
+//
+// AWS 环境（DBEnvAWS）：
+//   - 驱动切换为 AmazonAuroraDSQL，从 DSQL_ENDPOINT 读取集群端点，
+//     密码字段留空（由 InitDatabase 在运行时动态生成 IAM token 填充）。
+//
+// 参数：
+//   - env : 由 utilities.ResolveDBEnvironment() 返回的环境类型
+//
+// 返回：
+//   - services.DatabaseConfiguration : 填充完毕的数据库连接配置
+func buildDBConfig(env utilities.DBEnvironment) services.DatabaseConfiguration {
+	base := services.DatabaseConfiguration{
+		Host:            getEnv("DB_HOST", "localhost"),
+		Port:            getEnv("DB_PORT", "5432"),
+		User:            getEnv("DB_USER", "postgres"),
+		Password:        getEnv("DB_PASSWORD", ""),
+		DBName:          getEnv("DB_NAME", "nezha_cyber"),
+		MaxOpenConns:    25,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: 5 * time.Minute,
+	}
+
+	switch env {
+	case utilities.DBEnvAWS:
+		base.Type = services.AmazonAuroraDSQL
+		base.Host = getEnv("DSQL_ENDPOINT", base.Host)
+		base.AWSRegion = utilities.AWSRegion("us-east-1")
+		base.Password = ""
+		utilities.LogProgress("Main", "buildDBConfig", "数据库驱动=AmazonAuroraDSQL",
+			fmt.Sprintf("endpoint=%s", base.Host),
+			fmt.Sprintf("region=%s", base.AWSRegion),
+		)
+
+	default:
+		base.Type = services.PostgreSQL
+		utilities.LogProgress("Main", "buildDBConfig", "数据库驱动=PostgreSQL",
+			fmt.Sprintf("host=%s", base.Host),
+			fmt.Sprintf("port=%s", base.Port),
+		)
+	}
+
+	return base
+}
+
 // getEnv 读取指定环境变量的值。
 // 若环境变量未设置或为空字符串，则返回 fallback 默认值。
 //
@@ -181,6 +215,5 @@ func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-
 	return fallback
 }
