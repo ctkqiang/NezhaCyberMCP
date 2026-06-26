@@ -292,12 +292,11 @@ func runLambda(ctx context.Context) error {
 
 // buildDBConfig 根据已解析的运行时环境类型构造 DatabaseConfiguration。
 //
-// 本地环境（DBEnvLocal）：
-//   - 驱动固定为 PostgreSQL，从 DB_* 环境变量读取连接参数。
-//
-// AWS 环境（DBEnvAWS）：
-//   - 驱动切换为 AmazonAuroraDSQL，从 DSQL_ENDPOINT 读取集群端点，
-//     密码字段留空（由 InitDatabase 在运行时动态生成 IAM token 填充）。
+// 优先级（从高到低）：
+//  1. DB_SQLITE=true：无论环境如何，使用 SQLite，固定路径 /tmp/nezha_cyber.db。
+//     适用于 Lambda 无状态场景或本地快速测试，无需任何外部数据库。
+//  2. AWS 环境（DBEnvAWS）：使用 Amazon Aurora DSQL，从 DSQL_ENDPOINT 读取端点。
+//  3. 本地环境（DBEnvLocal）：使用 PostgreSQL，从 DB_* 环境变量读取连接参数。
 //
 // 参数：
 //   - env : 由 utilities.ResolveDBEnvironment() 返回的环境类型
@@ -305,6 +304,15 @@ func runLambda(ctx context.Context) error {
 // 返回：
 //   - services.DatabaseConfiguration : 填充完毕的数据库连接配置
 func buildDBConfig(env utilities.DBEnvironment) services.DatabaseConfiguration {
+	if getEnv("DB_SQLITE", "false") == "true" {
+		utilities.LogProgress("Main", "buildDBConfig", "数据库驱动=SQLite",
+			fmt.Sprintf("path=%s", "/tmp/nezha_cyber.db"),
+		)
+		return services.DatabaseConfiguration{
+			Type: services.SQLite,
+		}
+	}
+
 	base := services.DatabaseConfiguration{
 		Host:            getEnv("DB_HOST", "localhost"),
 		Port:            getEnv("DB_PORT", "5432"),

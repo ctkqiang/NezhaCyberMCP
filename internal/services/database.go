@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dsql/auth"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -25,7 +26,14 @@ const (
 	SQLServer                            // Microsoft SQL Server
 	Oracle                               // Oracle Database（暂未实现）
 	QuestDB                              // QuestDB 时序数据库（暂未实现）
-	AmazonAuroraDSQL                     // Amazon Aurora DSQL 分布式 SQL 数据库（暂未实现）
+	AmazonAuroraDSQL                     // Amazon Aurora DSQL 分布式 SQL 数据库
+	SQLite                               // SQLite，固定路径 /tmp/nezha_cyber.db，由 DB_SQLITE=true 启用
+)
+
+const (
+	// sqliteFixedPath 是 SQLite 数据库文件的固定路径。
+	// 使用 /tmp 目录确保在 Lambda 和本地环境中均可写入。
+	sqliteFixedPath = "/tmp/nezha_cyber.db"
 )
 
 // truncateBody 将原始 HTTP 响应体截断为最多 maxBytes 个字节，
@@ -54,6 +62,8 @@ func (t DatabaseType) String() string {
 		return "QuestDB"
 	case AmazonAuroraDSQL:
 		return "AmazonAuroraDSQL"
+	case SQLite:
+		return "SQLite"
 	default:
 		return "Unknown"
 	}
@@ -197,6 +207,11 @@ func buildDSN(cfg DatabaseConfiguration) (gorm.Dialector, error) {
 			cfg.Host, cfg.User, cfg.Password, cfg.DBName, port)
 		return postgres.Open(b.String()), nil
 
+	case SQLite:
+		// SQLite 使用固定路径 /tmp/nezha_cyber.db。
+		// cache=shared 允许同一进程内多个连接共享同一缓存，_journal_mode=WAL 提升并发写入性能。
+		return sqlite.Open(sqliteFixedPath + "?cache=shared&_journal_mode=WAL"), nil
+
 	default:
 		return nil, fmt.Errorf("数据库类型 %d 不受支持或尚未实现", cfg.Type)
 	}
@@ -290,15 +305,22 @@ func InitDatabase(ctx context.Context, cfg DatabaseConfiguration) (*Database, er
 		return nil, fmt.Errorf("获取 sql.DB 句柄失败: %w", err)
 	}
 
-	// 仅在配置值大于零时覆盖连接池参数，否则保留驱动默认值。
-	if cfg.MaxOpenConns > 0 {
-		sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
-	}
-	if cfg.MaxIdleConns > 0 {
-		sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
-	}
-	if cfg.ConnMaxLifetime > 0 {
-		sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	// SQLite 不支持并发写入，强制单连接避免 SQLITE_BUSY 错误。
+	// 其他驱动仅在配置值大于零时覆盖连接池参数，否则保留驱动默认值。
+	if cfg.Type == SQLite {
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+		sqlDB.SetConnMaxLifetime(0)
+	} else {
+		if cfg.MaxOpenConns > 0 {
+			sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+		}
+		if cfg.MaxIdleConns > 0 {
+			sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+		}
+		if cfg.ConnMaxLifetime > 0 {
+			sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+		}
 	}
 
 	if err := sqlDB.PingContext(ctx); err != nil {
