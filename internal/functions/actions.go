@@ -288,6 +288,24 @@ func githubAdvisoryToRecord(g model.GithubAdvisory) CVERecord {
 	}
 }
 
+// mycertAdvisoryToRecord 将 model.MycertAdvisory 转换为标准化的 CVERecord 输出结构。
+// MyCERT 公告无 CVE ID 字段，使用 AdvisoryID 作为标识符。
+func mycertAdvisoryToRecord(m model.MycertAdvisory) CVERecord {
+	return CVERecord{
+		CVEID:         m.AdvisoryID,
+		State:         "PUBLISHED",
+		AssignerShort: "mycert",
+		Title:         m.Title,
+		Description:   m.FullContent,
+		Severity:      "unknown",
+		CWEIDs:        []string{},
+		Affected:      json.RawMessage("[]"),
+		References:    json.RawMessage(`[{"url":"` + m.DetailURL + `"}]`),
+		DatePublished: m.PublishedAt,
+		DateUpdated:   &m.ScrapedAt,
+	}
+}
+
 // clampLimit 将 limit 限制在 [1, max] 范围内，若 limit <= 0 则使用 defaultVal。
 func clampLimit(limit, defaultVal, max int) int {
 	if limit <= 0 {
@@ -369,21 +387,36 @@ func (a *Actions) GetCVE(ctx context.Context, params GetCVEParams) (*CVERecord, 
 		Where("cve_id = ?", cveID).
 		First(&gh)
 
-	if ghResult.Error != nil {
-		if ghResult.Error == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("CVE %q 不存在", cveID)
-		}
+	if ghResult.Error == nil {
+		rec := githubAdvisoryToRecord(gh)
+		utilities.LogSuccess(actionsComponent, "GetCVE", time.Since(start),
+			"cve_id="+cveID, "source=github_advisories")
+		return &rec, nil
+	}
+
+	if ghResult.Error != gorm.ErrRecordNotFound {
 		utilities.LogError(actionsComponent, "GetCVE", ghResult.Error, time.Since(start))
 		return nil, fmt.Errorf("查询 CVE 失败: %w", ghResult.Error)
 	}
 
-	rec := githubAdvisoryToRecord(gh)
-	utilities.LogSuccess(actionsComponent, "GetCVE", time.Since(start),
-		"cve_id="+cveID, "source=github_advisories")
-	return &rec, nil
+	// github_advisories 也未命中，回退到 mycert_advisories（按标题关键词匹配）。
+	var mc model.MycertAdvisory
+	mcResult := a.db.WithContext(ctx).
+		Where("advisory_id = ? OR title ILIKE ?", cveID, "%"+cveID+"%").
+		First(&mc)
+
+	if mcResult.Error == nil {
+		rec := mycertAdvisoryToRecord(mc)
+		utilities.LogSuccess(actionsComponent, "GetCVE", time.Since(start),
+			"cve_id="+cveID, "source=mycert_advisories")
+		return &rec, nil
+	}
+
+	return nil, fmt.Errorf("CVE %q 不存在", cveID)
 }
 
 // SearchCVEs 按多维度条件搜索 CVE 记录。
+// 跨三张表查询：circl_cves → github_advisories → mycert_advisories，结果合并去重。
 // 对应 MCP 工具：search_cves
 //
 // 参数：
@@ -392,15 +425,19 @@ func (a *Actions) GetCVE(ctx context.Context, params GetCVEParams) (*CVERecord, 
 //
 // 返回：
 //   - []CVERecord : 匹配的 CVE 记录列表
-//   - int         : 符合条件的总记录数（不受 limit 限制）
+//   - int64       : 符合条件的总记录数（不受 limit 限制）
 //   - error       : 查询失败时返回错误
 func (a *Actions) SearchCVEs(ctx context.Context, params SearchCVEsParams) ([]CVERecord, int64, error) {
 	start := time.Now()
 	utilities.LogStart(actionsComponent, "SearchCVEs")
 
 	limit := clampLimit(params.Limit, 20, 100)
-	q := a.db.WithContext(ctx).Model(&model.CirclCVE{})
+	records := make([]CVERecord, 0, limit)
+	seen := make(map[string]struct{})
+	var total int64
 
+	// 1. 查询 circl_cves。
+	q := a.db.WithContext(ctx).Model(&model.CirclCVE{})
 	if params.Keyword != "" {
 		kw := "%" + params.Keyword + "%"
 		q = q.Where("title ILIKE ? OR description ILIKE ?", kw, kw)
@@ -432,25 +469,105 @@ func (a *Actions) SearchCVEs(ctx context.Context, params SearchCVEsParams) ([]CV
 		q = q.Where("date_published <= ?", t.Add(24*time.Hour-time.Second))
 	}
 
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	var circlTotal int64
+	if err := q.Count(&circlTotal).Error; err != nil {
 		utilities.LogError(actionsComponent, "SearchCVEs", err, time.Since(start))
-		return nil, 0, fmt.Errorf("统计搜索结果失败: %w", err)
+		return nil, 0, fmt.Errorf("统计 circl_cves 搜索结果失败: %w", err)
 	}
+	total += circlTotal
 
 	var cves []model.CirclCVE
 	if err := q.Order("date_published DESC NULLS LAST").Limit(limit).Find(&cves).Error; err != nil {
 		utilities.LogError(actionsComponent, "SearchCVEs", err, time.Since(start))
-		return nil, 0, fmt.Errorf("搜索 CVE 失败: %w", err)
+		return nil, 0, fmt.Errorf("搜索 circl_cves 失败: %w", err)
+	}
+	for _, c := range cves {
+		if _, dup := seen[c.CVEID]; !dup {
+			seen[c.CVEID] = struct{}{}
+			records = append(records, toRecord(c))
+		}
 	}
 
-	records := make([]CVERecord, len(cves))
-	for i, c := range cves {
-		records[i] = toRecord(c)
+	// 2. 查询 github_advisories（补充 circl_cves 未覆盖的记录）。
+	remaining := limit - len(records)
+	if remaining > 0 {
+		ghQ := a.db.WithContext(ctx).Model(&model.GithubAdvisory{})
+		if params.Keyword != "" {
+			kw := "%" + params.Keyword + "%"
+			ghQ = ghQ.Where("summary ILIKE ? OR description ILIKE ?", kw, kw)
+		}
+		if params.Vendor != "" {
+			ghQ = ghQ.Where("cve_id ILIKE ?", "%"+params.Vendor+"%")
+		}
+		if params.Product != "" {
+			ghQ = ghQ.Where("vulnerabilities ILIKE ?", "%"+params.Product+"%")
+		}
+		if params.DateFrom != "" {
+			t, _ := parseDateParam(params.DateFrom)
+			ghQ = ghQ.Where("published_at >= ?", t)
+		}
+		if params.DateTo != "" {
+			t, _ := parseDateParam(params.DateTo)
+			ghQ = ghQ.Where("published_at <= ?", t.Add(24*time.Hour-time.Second))
+		}
+		if params.Status != "" {
+			ghQ = ghQ.Where("type = ?", strings.ToLower(params.Status))
+		}
+
+		var ghTotal int64
+		if err := ghQ.Count(&ghTotal).Error; err == nil {
+			total += ghTotal
+		}
+
+		var ghAdvisories []model.GithubAdvisory
+		if err := ghQ.Order("published_at DESC NULLS LAST").Limit(remaining).Find(&ghAdvisories).Error; err == nil {
+			for _, g := range ghAdvisories {
+				key := g.GHSAID
+				if g.CVEID != nil {
+					key = *g.CVEID
+				}
+				if _, dup := seen[key]; !dup {
+					seen[key] = struct{}{}
+					records = append(records, githubAdvisoryToRecord(g))
+				}
+			}
+		}
+	}
+
+	// 3. 查询 mycert_advisories（仅关键词搜索时补充）。
+	remaining = limit - len(records)
+	if remaining > 0 && params.Keyword != "" {
+		kw := "%" + params.Keyword + "%"
+		mcQ := a.db.WithContext(ctx).Model(&model.MycertAdvisory{}).
+			Where("title ILIKE ? OR summary ILIKE ? OR full_content ILIKE ?", kw, kw, kw)
+
+		if params.DateFrom != "" {
+			t, _ := parseDateParam(params.DateFrom)
+			mcQ = mcQ.Where("published_at >= ?", t)
+		}
+		if params.DateTo != "" {
+			t, _ := parseDateParam(params.DateTo)
+			mcQ = mcQ.Where("published_at <= ?", t.Add(24*time.Hour-time.Second))
+		}
+
+		var mcTotal int64
+		if err := mcQ.Count(&mcTotal).Error; err == nil {
+			total += mcTotal
+		}
+
+		var mcAdvisories []model.MycertAdvisory
+		if err := mcQ.Order("published_at DESC NULLS LAST").Limit(remaining).Find(&mcAdvisories).Error; err == nil {
+			for _, m := range mcAdvisories {
+				if _, dup := seen[m.AdvisoryID]; !dup {
+					seen[m.AdvisoryID] = struct{}{}
+					records = append(records, mycertAdvisoryToRecord(m))
+				}
+			}
+		}
 	}
 
 	utilities.LogSuccess(actionsComponent, "SearchCVEs", time.Since(start),
-		fmt.Sprintf("matched=%d returned=%d", total, len(records)))
+		fmt.Sprintf("total=%d returned=%d", total, len(records)))
 	return records, total, nil
 }
 
@@ -529,21 +646,44 @@ func (a *Actions) BulkGet(ctx context.Context, params BulkGetParams) ([]CVERecor
 		return nil, nil, fmt.Errorf("批量查询 CVE 失败: %w", err)
 	}
 
-	// 计算未找到的 ID。
-	found := make(map[string]struct{}, len(cves))
+	// 计算 circl_cves 中未找到的 ID。
+	foundIDs := make(map[string]struct{}, len(cves))
 	for _, c := range cves {
-		found[c.CVEID] = struct{}{}
+		foundIDs[c.CVEID] = struct{}{}
 	}
-	var notFound []string
+	var stillNotFound []string
 	for _, id := range upperIDs {
-		if _, ok := found[id]; !ok {
-			notFound = append(notFound, id)
+		if _, ok := foundIDs[id]; !ok {
+			stillNotFound = append(stillNotFound, id)
 		}
 	}
 
-	records := make([]CVERecord, len(cves))
-	for i, c := range cves {
-		records[i] = toRecord(c)
+	records := make([]CVERecord, 0, len(cves))
+	for _, c := range cves {
+		records = append(records, toRecord(c))
+	}
+
+	// 对 circl_cves 未命中的 ID，回退到 github_advisories。
+	if len(stillNotFound) > 0 {
+		var ghAdvisories []model.GithubAdvisory
+		if err := a.db.WithContext(ctx).
+			Where("cve_id IN ?", stillNotFound).
+			Find(&ghAdvisories).Error; err == nil {
+			for _, g := range ghAdvisories {
+				if g.CVEID != nil {
+					foundIDs[*g.CVEID] = struct{}{}
+				}
+				records = append(records, githubAdvisoryToRecord(g))
+			}
+		}
+	}
+
+	// 最终计算仍未找到的 ID。
+	var notFound []string
+	for _, id := range upperIDs {
+		if _, ok := foundIDs[id]; !ok {
+			notFound = append(notFound, id)
+		}
 	}
 
 	utilities.LogSuccess(actionsComponent, "BulkGet", time.Since(start),
@@ -601,8 +741,8 @@ func (a *Actions) FilterBySeverity(ctx context.Context, params FilterBySeverityP
 		q = q.Where("date_published <= ?", t.Add(24*time.Hour-time.Second))
 	}
 
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	var circlTotal int64
+	if err := q.Count(&circlTotal).Error; err != nil {
 		utilities.LogError(actionsComponent, "FilterBySeverity", err, time.Since(start))
 		return nil, 0, fmt.Errorf("统计严重程度过滤结果失败: %w", err)
 	}
@@ -613,11 +753,45 @@ func (a *Actions) FilterBySeverity(ctx context.Context, params FilterBySeverityP
 		return nil, 0, fmt.Errorf("按严重程度过滤失败: %w", err)
 	}
 
-	records := make([]CVERecord, len(cves))
-	for i, c := range cves {
-		records[i] = toRecord(c)
+	seen := make(map[string]struct{}, len(cves))
+	records := make([]CVERecord, 0, len(cves))
+	for _, c := range cves {
+		seen[c.CVEID] = struct{}{}
+		records = append(records, toRecord(c))
 	}
 
+	// 补充 github_advisories 中相同严重程度的记录。
+	remaining := limit - len(records)
+	var ghTotal int64
+	if remaining > 0 {
+		ghQ := a.db.WithContext(ctx).Model(&model.GithubAdvisory{}).
+			Where("severity IN ?", normalized)
+		if params.DateFrom != "" {
+			t, _ := parseDateParam(params.DateFrom)
+			ghQ = ghQ.Where("published_at >= ?", t)
+		}
+		if params.DateTo != "" {
+			t, _ := parseDateParam(params.DateTo)
+			ghQ = ghQ.Where("published_at <= ?", t.Add(24*time.Hour-time.Second))
+		}
+		if err := ghQ.Count(&ghTotal).Error; err == nil {
+			var ghAdvisories []model.GithubAdvisory
+			if err := ghQ.Order("published_at DESC NULLS LAST").Limit(remaining).Find(&ghAdvisories).Error; err == nil {
+				for _, g := range ghAdvisories {
+					key := g.GHSAID
+					if g.CVEID != nil {
+						key = *g.CVEID
+					}
+					if _, dup := seen[key]; !dup {
+						seen[key] = struct{}{}
+						records = append(records, githubAdvisoryToRecord(g))
+					}
+				}
+			}
+		}
+	}
+
+	total := circlTotal + ghTotal
 	utilities.LogSuccess(actionsComponent, "FilterBySeverity", time.Since(start),
 		fmt.Sprintf("severities=%v matched=%d returned=%d", normalized, total, len(records)))
 	return records, total, nil
@@ -815,8 +989,8 @@ func (a *Actions) WhatsNew(ctx context.Context, params WhatsNewParams) ([]CVERec
 		q = q.Where("severity IN ?", severities)
 	}
 
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	var circlTotal int64
+	if err := q.Count(&circlTotal).Error; err != nil {
 		utilities.LogError(actionsComponent, "WhatsNew", err, time.Since(start))
 		return nil, 0, fmt.Errorf("统计新 CVE 数量失败: %w", err)
 	}
@@ -827,11 +1001,40 @@ func (a *Actions) WhatsNew(ctx context.Context, params WhatsNewParams) ([]CVERec
 		return nil, 0, fmt.Errorf("查询新 CVE 失败: %w", err)
 	}
 
-	records := make([]CVERecord, len(cves))
-	for i, c := range cves {
-		records[i] = toRecord(c)
+	seen := make(map[string]struct{}, len(cves))
+	records := make([]CVERecord, 0, len(cves))
+	for _, c := range cves {
+		seen[c.CVEID] = struct{}{}
+		records = append(records, toRecord(c))
 	}
 
+	// 补充 github_advisories 中同期发布的记录。
+	remaining := limit - len(records)
+	var ghTotal int64
+	if remaining > 0 {
+		ghQ := a.db.WithContext(ctx).Model(&model.GithubAdvisory{}).
+			Where("published_at >= ?", since)
+		if params.MinSeverity != "" {
+			ghQ = ghQ.Where("severity IN ?", severityOrder(params.MinSeverity))
+		}
+		if err := ghQ.Count(&ghTotal).Error; err == nil {
+			var ghAdvisories []model.GithubAdvisory
+			if err := ghQ.Order("published_at DESC NULLS LAST").Limit(remaining).Find(&ghAdvisories).Error; err == nil {
+				for _, g := range ghAdvisories {
+					key := g.GHSAID
+					if g.CVEID != nil {
+						key = *g.CVEID
+					}
+					if _, dup := seen[key]; !dup {
+						seen[key] = struct{}{}
+						records = append(records, githubAdvisoryToRecord(g))
+					}
+				}
+			}
+		}
+	}
+
+	total := circlTotal + ghTotal
 	utilities.LogSuccess(actionsComponent, "WhatsNew", time.Since(start),
 		fmt.Sprintf("since=%s matched=%d returned=%d", params.SinceDate, total, len(records)))
 	return records, total, nil

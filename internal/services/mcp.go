@@ -181,7 +181,7 @@ func (s *MCPServer) toolGetCVE(
 	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	params functions.GetCVEParams,
-) (*mcp.CallToolResult, *functions.CVERecord, error) {
+) (*mcp.CallToolResult, any, error) {
 	start := time.Now()
 	utilities.LogStart(mcpComponent, "tool:get_cve")
 
@@ -663,6 +663,9 @@ func (s *MCPServer) registerPrompts() {
 		&mcp.Prompt{
 			Name:        "triage_for_stakeholder",
 			Description: "将 CVE 列表转化为面向非技术利益相关者的风险摘要，使用业务语言描述影响与建议行动。",
+			Arguments: []*mcp.PromptArgument{
+				{Name: "cve_list", Description: "逗号分隔的 CVE ID 列表，如 CVE-2021-44228,CVE-2022-22965", Required: true},
+			},
 		},
 		promptTriageForStakeholder,
 	)
@@ -671,6 +674,10 @@ func (s *MCPServer) registerPrompts() {
 		&mcp.Prompt{
 			Name:        "patching_priorities",
 			Description: "为指定产品生成补丁优先级建议，按严重程度和可利用性排序，输出结构化的修复计划。",
+			Arguments: []*mcp.PromptArgument{
+				{Name: "product", Description: "产品名称，如 apache:log4j 或 spring-framework", Required: true},
+				{Name: "cve_data", Description: "可选的 CVE JSON 数据，留空时由 LLM 自行查询", Required: false},
+			},
 		},
 		promptPatchingPriorities,
 	)
@@ -679,6 +686,10 @@ func (s *MCPServer) registerPrompts() {
 		&mcp.Prompt{
 			Name:        "draft_security_advisory",
 			Description: "根据 CVE 记录起草安全公告，包含漏洞描述、受影响版本、修复建议和参考链接。",
+			Arguments: []*mcp.PromptArgument{
+				{Name: "cve_id", Description: "目标 CVE ID，如 CVE-2021-44228", Required: true},
+				{Name: "cve_data", Description: "可选的 CVE JSON 数据，留空时由 LLM 自行查询", Required: false},
+			},
 		},
 		promptDraftSecurityAdvisory,
 	)
@@ -687,6 +698,10 @@ func (s *MCPServer) registerPrompts() {
 		&mcp.Prompt{
 			Name:        "weekly_vuln_report",
 			Description: "根据软件资产清单生成每周漏洞报告，汇总新增漏洞、严重程度分布和修复优先级。",
+			Arguments: []*mcp.PromptArgument{
+				{Name: "asset_list", Description: "软件资产清单，格式 vendor:product，每行一条", Required: true},
+				{Name: "since_date", Description: "报告起始日期，格式 YYYY-MM-DD，默认为 7 天前", Required: false},
+			},
 		},
 		promptWeeklyVulnReport,
 	)

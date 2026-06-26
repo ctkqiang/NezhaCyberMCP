@@ -111,7 +111,9 @@ func (j *AdvisoryJob) MigrateAll(ctx context.Context) error {
 	mycertRepo := repository.NewMycertAdvisoryRepository(db.DB())
 	if err := mycertRepo.Migrate(ctx); err != nil {
 		utilities.LogError(component, "MigrateAll", err, time.Since(start),
-			"table=mycert_advisories")
+			"table=mycert_advisories",
+		)
+
 		return fmt.Errorf("MigrateAll: mycert_advisories: %w", err)
 	}
 
