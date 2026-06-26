@@ -20,18 +20,43 @@
         <div class="cta-code">
           <div class="code-block">
             <div class="code-block__header">
-              <span class="code-block__title">{{ $t("cta.config_title") }}</span>
+              <div class="code-tabs">
+                <button
+                  class="code-tab"
+                  :class="{ 'code-tab--active': activeTab === 'local' }"
+                  @click="activeTab = 'local'"
+                >
+                  <i class="pi pi-desktop" /> {{ $t("cta.tab_local") }}
+                </button>
+                <button
+                  class="code-tab code-tab--soon"
+                  :class="{ 'code-tab--active': activeTab === 'lambda' }"
+                  @click="activeTab = 'lambda'"
+                  :title="$t('cta.lambda_soon')"
+                >
+                  <i class="pi pi-cloud" /> {{ $t("cta.tab_lambda") }}
+                  <span class="soon-badge">{{ $t("cta.soon") }}</span>
+                </button>
+              </div>
               <button class="code-copy" @click="copy" :title="copied ? 'Copied!' : 'Copy'">
                 <i :class="copied ? 'pi pi-check' : 'pi pi-copy'" />
               </button>
             </div>
-            <pre class="code-block__body"><code><span class="t-brace">{</span>
+
+            <div v-if="activeTab === 'local'">
+              <pre class="code-block__body"><code><span class="t-brace">{</span>
   <span class="t-key">"mcpServers"</span><span class="t-colon">:</span> <span class="t-brace">{</span>
     <span class="t-key">"nezha-cyber"</span><span class="t-colon">:</span> <span class="t-brace">{</span>
       <span class="t-key">"command"</span><span class="t-colon">:</span> <span class="t-str">"./advisory"</span>
     <span class="t-brace">}</span>
   <span class="t-brace">}</span>
 <span class="t-brace">}</span></code></pre>
+            </div>
+
+            <div v-else class="lambda-placeholder">
+              <i class="pi pi-cloud" />
+              <p>{{ $t("cta.lambda_soon_desc") }}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -41,6 +66,7 @@
 
 <script setup lang="ts">
 const copied = ref(false);
+const activeTab = ref<"local" | "lambda">("local");
 
 const configSnippet = `{
   "mcpServers": {
@@ -118,9 +144,74 @@ async function copy() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 8px 12px;
   background: var(--code-bar);
   border-bottom: 1px solid var(--code-border);
+  gap: 8px;
+}
+
+.code-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.code-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--code-dim);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+.code-tab:hover {
+  background: rgba(229, 62, 62, 0.08);
+  color: var(--color-text-muted);
+}
+
+.code-tab--active {
+  background: rgba(229, 62, 62, 0.12);
+  border-color: rgba(229, 62, 62, 0.3);
+  color: var(--color-primary-light);
+}
+
+.code-tab--soon { opacity: 0.7; }
+
+.soon-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(246, 173, 85, 0.15);
+  color: var(--color-accent);
+  border: 1px solid rgba(246, 173, 85, 0.3);
+}
+
+.lambda-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  color: var(--code-dim);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+.lambda-placeholder .pi {
+  font-size: 2rem;
+  color: var(--color-accent);
+  opacity: 0.6;
 }
 
 .code-block__title {

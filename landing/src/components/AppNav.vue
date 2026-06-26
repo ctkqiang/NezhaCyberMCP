@@ -10,6 +10,7 @@
         <li><a href="#features">{{ $t("nav.features") }}</a></li>
         <li><a href="#sources">{{ $t("nav.sources") }}</a></li>
         <li><a href="#tools">{{ $t("nav.tools") }}</a></li>
+        <li><a href="/install" class="nav__install-link"><i class="pi pi-book" />{{ $t("nav.install") }}</a></li>
       </ul>
 
       <div class="nav__actions">
@@ -133,6 +134,16 @@ onMounted(() => {
 .nav__links a:hover {
   color: var(--color-text);
 }
+
+.nav__install-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-primary-light) !important;
+  font-weight: 600;
+}
+
+.nav__install-link .pi { font-size: 0.8rem; }
 
 .nav__actions {
   display: flex;

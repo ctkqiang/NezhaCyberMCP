@@ -3,7 +3,8 @@
     "features": "Features",
     "sources": "Data Sources",
     "tools": "MCP Tools",
-    "github": "GitHub"
+    "github": "GitHub",
+    "install": "Install Guide"
   },
   "hero": {
     "badge": "Model Context Protocol Server",
@@ -83,12 +84,100 @@
     "title": "Ready to give your AI superpowers?",
     "desc": "Add NezhaCyberMCP to your Claude, Cursor, or any MCP-compatible AI assistant. No database setup required — CVE data is served directly from our infrastructure.",
     "button": "View Setup Guide",
-    "config_title": "Add to your MCP config — that's it"
+    "config_title": "Add to your MCP config — that's it",
+    "tab_local": "Local",
+    "tab_lambda": "AWS Lambda",
+    "soon": "Soon",
+    "lambda_soon": "AWS Lambda deployment coming soon",
+    "lambda_soon_desc": "AWS Lambda deployment is coming soon. For now, run the server locally using the Local tab."
+  },
+  "install": {
+    "badge": "Installation Guide",
+    "title": "Install & Configure Your AI Toolkit",
+    "desc": "Step-by-step guide to set up Trae, Claude Code, OpenAI Codex, and NezhaCyberMCP on your machine.",
+    "toc_label": "On this page",
+    "verify": "Verification",
+    "copy": "Copy",
+    "docs": "Official Docs",
+    "s1": {
+      "title": "Prerequisites",
+      "desc": "Ensure your system meets the minimum requirements before proceeding.",
+      "req_name": "Dependency",
+      "req_version": "Version",
+      "req_purpose": "Purpose",
+      "go_purpose": "Build NezhaCyberMCP binary",
+      "git_purpose": "Clone repositories",
+      "node_purpose": "Run Claude Code & Codex CLI",
+      "npm_purpose": "Install global CLI packages"
+    },
+    "s2": {
+      "title": "Trae IDE",
+      "desc": "Trae is an AI-native IDE built for agentic coding workflows. Install it as your primary development environment.",
+      "step1_title": "Download & Install",
+      "step1_desc": "Run the official install script. On macOS/Linux this installs the Trae binary and adds it to your PATH.",
+      "step2_title": "Sign In",
+      "step2_desc": "Open Trae and sign in with your account. Trae supports GitHub OAuth and email login.",
+      "step2_note": "Trae is free for individual developers. No credit card required.",
+      "step3_title": "Open Your Project",
+      "step3_desc": "Use File → Open Folder to open your NezhaCyberMCP directory. Trae will auto-detect the Go workspace.",
+      "verify": "Launch Trae from your Applications folder or terminal. The welcome screen should appear with your account name in the top-right corner."
+    },
+    "s3": {
+      "title": "Claude Code",
+      "desc": "Claude Code is Anthropic's agentic coding CLI. It runs in your terminal and can read, write, and execute code autonomously.",
+      "step1_title": "Install via npm",
+      "step1_desc": "Install the Claude Code CLI globally using npm. Requires Node.js 18 LTS or later.",
+      "step2_title": "Authenticate",
+      "step2_desc": "Log in with your Anthropic account. This stores a session token in ~/.claude.",
+      "step3_title": "Add MCP Server",
+      "step3_desc": "Register NezhaCyberMCP as an MCP server so Claude can call its tools.",
+      "step3_note": "You need an active Anthropic API subscription (Pro or Team) to use Claude Code.",
+      "verify": "Run `claude --version` in your terminal. You should see a version string like `1.x.x`."
+    },
+    "s4": {
+      "title": "OpenAI Codex",
+      "desc": "OpenAI Codex CLI is a terminal-based AI coding agent powered by GPT-4o. It supports MCP tool integration.",
+      "step1_title": "Install via npm",
+      "step1_desc": "Install the Codex CLI globally. Requires Node.js 18+ and an OpenAI API key.",
+      "step2_title": "Set API Key",
+      "step2_desc": "Export your OpenAI API key as an environment variable. Add this to your shell profile for persistence.",
+      "step2_note": "Never commit your API key to version control. Use a .env file or a secrets manager.",
+      "step3_title": "Launch Codex",
+      "step3_desc": "Run `codex` in your project directory. Codex will read your codebase and await instructions.",
+      "verify": "Run codex --version to confirm the installation. Expected output: openai/codex x.x.x."
+    },
+    "s5": {
+      "title": "NezhaCyberMCP",
+      "desc": "Clone, build, and wire up the MCP server binary to your AI assistant.",
+      "step1_title": "Clone the Repository",
+      "step1_desc": "Clone NezhaCyberMCP from GitHub and navigate into the project directory.",
+      "step2_title": "Build the Binary",
+      "step2_desc": "Run `make build` to compile the Go binary. The output binary is named `advisory`.",
+      "step3_title": "Configure MCP",
+      "step3_desc": "Add the config block below to your AI assistant's MCP configuration file (e.g. ~/.claude/mcp.json or Trae's MCP settings).",
+      "step3_note": "The `./advisory` path must be the absolute or relative path to the compiled binary on your machine.",
+      "step4_title": "Start the Server",
+      "step4_desc": "Run `make run` to start the MCP server. It will begin syncing CVE data in the background.",
+      "verify": "Open your AI assistant and ask: 'What are the latest CRITICAL CVEs?' — it should call the `whats_new` tool and return real data."
+    },
+    "s6": {
+      "title": "Troubleshooting",
+      "desc": "Common issues and how to resolve them.",
+      "q1": "`make build` fails with 'go: command not found'",
+      "a1": "Go is not installed or not in your PATH. Install Go from golang.org/dl and ensure `go` is accessible.",
+      "q2": "Permission denied when running `./advisory`",
+      "a2": "The binary is not executable. Run the command below to fix permissions.",
+      "q3": "Claude Code shows 'MCP server not connected'",
+      "a3": "Ensure the `command` path in your mcp.json points to the correct absolute path of the `advisory` binary. Relative paths may not resolve correctly depending on how Claude Code is launched.",
+      "q4": "How do I add NezhaCyberMCP to Claude Code via CLI?",
+      "a4": "Use the `claude mcp add` command to register the server. Replace the path with your actual binary location."
+    }
   },
   "footer": {
     "tagline": "Built with Go · Powered by MCP · Open Source",
     "links": {
       "github": "GitHub",
+      "gitcode": "GitCode",
       "issues": "Issues",
       "license": "MIT License"
     },

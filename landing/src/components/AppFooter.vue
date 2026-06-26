@@ -14,6 +14,10 @@
           <i class="pi pi-github" />
           {{ $t("footer.links.github") }}
         </a>
+        <a href="https://gitcode.com/ctkqiang_sr/NezhaCyberMCP" target="_blank" rel="noopener" class="footer__gitcode">
+          <i class="pi pi-code" />
+          {{ $t("footer.links.gitcode") }}
+        </a>
         <a href="https://github.com/ctkqiang/NezhaCyberMCP/issues" target="_blank" rel="noopener">
           <i class="pi pi-exclamation-circle" />
           {{ $t("footer.links.issues") }}
@@ -95,6 +99,11 @@
 }
 
 .footer__copy {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
+}
+
+.footer__gitcode {
+  color: var(--color-primary-light) !important;
+  border-color: rgba(229, 62, 62, 0.3) !important;
 }
 </style>
