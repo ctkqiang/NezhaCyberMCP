@@ -277,7 +277,13 @@ func TestMycertScraper_ScrapeAndPersist_EmptyPage(t *testing.T) {
 
 // TestMycertScraper_ScrapeAndPersist_NetworkError 验证目标服务器不可达时
 // ScrapeAndPersist 能正确返回网络错误。
+// 通过立即关闭 httptest.Server 获得一个确定性的不可达地址，
+// 避免依赖硬编码端口（硬编码端口可能恰好被其他进程占用）。
 func TestMycertScraper_ScrapeAndPersist_NetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := srv.URL + "/portal/advisories?id=test"
+	srv.Close()
+
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	db.AutoMigrate(&model.MycertAdvisory{})
 	repo := repository.NewMycertAdvisoryRepository(db)
@@ -286,7 +292,7 @@ func TestMycertScraper_ScrapeAndPersist_NetworkError(t *testing.T) {
 		MaxPages:       1,
 		RequestTimeout: 1 * time.Second,
 		FetchDetail:    false,
-	}, "http://127.0.0.1:19999/portal/advisories?id=test")
+	}, deadURL)
 
 	_, err := svc.ScrapeAndPersist(context.Background())
 	if err == nil {

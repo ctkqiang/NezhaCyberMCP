@@ -93,3 +93,19 @@ func awsEnv(key, fallback string) string {
 	}
 	return fallback
 }
+
+// IsLocalMode reports whether none of the supported cloud runtimes are
+// detected, meaning the local development HTTP server should start.
+//
+// Returns:
+//   - bool: true when neither AWS Lambda nor Alibaba Cloud FC runtime
+//     environment variables are present.
+func IsLocalMode() bool {
+	_, lambdaPort := os.LookupEnv("_LAMBDA_SERVER_PORT")
+	_, lambdaAPI := os.LookupEnv("AWS_LAMBDA_RUNTIME_API")
+	_, fcFunc := os.LookupEnv("FC_FUNCTION_NAME")
+	onAWS := lambdaPort && lambdaAPI
+	onAliyun := fcFunc
+
+	return !onAWS && !onAliyun
+}

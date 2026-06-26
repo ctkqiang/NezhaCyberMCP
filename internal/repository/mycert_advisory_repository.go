@@ -129,9 +129,7 @@ func (r *MycertAdvisoryRepository) BulkUpsert(ctx context.Context, advisories []
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.
 			Clauses(clause.OnConflict{
-				// 明确指定冲突检测列为主键 advisory_id。
 				Columns: []clause.Column{{Name: "advisory_id"}},
-				// 冲突时更新所有非主键字段，保持数据与上游 MyCERT 网站同步。
 				DoUpdates: clause.AssignmentColumns([]string{
 					"title", "published_at", "category",
 					"summary", "detail_url", "full_content", "scraped_at",
