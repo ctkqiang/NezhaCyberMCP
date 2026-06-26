@@ -62,51 +62,51 @@
    ============================================================ */
 [data-theme="light"] {
   /* backgrounds */
-  --color-bg:        #fdf5f5;
+  --color-bg:        #f7eded;
   --color-surface:   #ffffff;
-  --color-surface-2: #fff0f0;
-  --color-surface-3: #ffe4e4;
+  --color-surface-2: #fce8e8;
+  --color-surface-3: #f9d5d5;
 
   /* borders */
-  --color-border:    rgba(197, 48, 48, 0.1);
-  --color-border-2:  rgba(197, 48, 48, 0.18);
+  --color-border:    rgba(197, 48, 48, 0.14);
+  --color-border-2:  rgba(197, 48, 48, 0.24);
 
   /* brand */
-  --color-primary:       #c53030;
-  --color-primary-light: #e53e3e;
-  --color-primary-dark:  #9b2c2c;
-  --color-accent:        #c05621;
+  --color-primary:       #b91c1c;
+  --color-primary-light: #dc2626;
+  --color-primary-dark:  #991b1b;
+  --color-accent:        #b45309;
 
   /* semantic */
-  --color-danger:  #c53030;
-  --color-warning: #c05621;
-  --color-success: #276749;
+  --color-danger:  #b91c1c;
+  --color-warning: #b45309;
+  --color-success: #166534;
 
   /* text */
-  --color-text:       #1a0a0a;
-  --color-text-muted: #5a2d2d;
-  --color-text-dim:   #9b6b6b;
+  --color-text:       #1c0a0a;
+  --color-text-muted: #6b2020;
+  --color-text-dim:   #a05050;
 
   /* shadows */
-  --shadow-glow: 0 0 40px rgba(197, 48, 48, 0.14);
-  --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.07);
-  --shadow-nav:  0 1px 0 rgba(197, 48, 48, 0.1);
+  --shadow-glow: 0 0 40px rgba(185, 28, 28, 0.18);
+  --shadow-card: 0 2px 20px rgba(0, 0, 0, 0.1);
+  --shadow-nav:  0 1px 0 rgba(185, 28, 28, 0.12);
 
   /* nav */
-  --nav-bg-scrolled: rgba(253, 245, 245, 0.93);
+  --nav-bg-scrolled: rgba(247, 237, 237, 0.95);
 
-  /* terminal */
-  --terminal-bg:     #fff8f8;
-  --terminal-bar:    #ffe8e8;
-  --terminal-border: rgba(197, 48, 48, 0.12);
-  --terminal-text:   #1a0a0a;
+  /* terminal — dark on light for readability */
+  --terminal-bg:     #1c0a0a;
+  --terminal-bar:    #2d1010;
+  --terminal-border: rgba(229, 62, 62, 0.3);
+  --terminal-text:   #f7e8e8;
   --terminal-dim:    #9b6b6b;
 
   /* code block */
-  --code-bg:     #fff8f8;
-  --code-bar:    #ffe8e8;
-  --code-border: rgba(197, 48, 48, 0.1);
-  --code-text:   #1a0a0a;
+  --code-bg:     #1c0a0a;
+  --code-bar:    #2d1010;
+  --code-border: rgba(229, 62, 62, 0.25);
+  --code-text:   #f7e8e8;
   --code-dim:    #9b6b6b;
 }
 

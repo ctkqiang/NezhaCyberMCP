@@ -14,9 +14,10 @@
 
       <div class="nav__actions">
         <ThemeToggle />
-        <button class="lang-toggle" @click="toggleLang" :title="currentLangLabel">
-          <i class="pi pi-globe" />
-          <span>{{ currentLangLabel }}</span>
+        <button class="lang-toggle" @click="toggleLang" :title="switchLabel">
+          <span class="lang-toggle__current">{{ currentFlag }} {{ currentLangName }}</span>
+          <span class="lang-toggle__sep">/</span>
+          <span class="lang-toggle__switch">{{ switchLabel }}</span>
         </button>
         <a
           href="https://github.com/ctkqiang/NezhaCyberMCP"
@@ -39,8 +40,9 @@
       <a href="#sources" @click="menuOpen = false">{{ $t("nav.sources") }}</a>
       <a href="#tools" @click="menuOpen = false">{{ $t("nav.tools") }}</a>
       <button class="lang-toggle" @click="toggleLang">
-        <i class="pi pi-globe" />
-        {{ currentLangLabel }}
+        <span>{{ currentFlag }} {{ currentLangName }}</span>
+        <span class="lang-toggle__sep">/</span>
+        <span class="lang-toggle__switch">{{ switchLabel }}</span>
       </button>
       <div class="nav__mobile-theme">
         <ThemeToggle />
@@ -55,6 +57,9 @@ const scrolled = ref(false);
 const menuOpen = ref(false);
 
 const currentLangLabel = computed(() => (locale.value === "zh" ? "EN" : "中文"));
+const currentFlag     = computed(() => (locale.value === "zh" ? "🇨🇳" : "🇺🇸"));
+const currentLangName = computed(() => (locale.value === "zh" ? "中文" : "EN"));
+const switchLabel     = computed(() => (locale.value === "zh" ? "EN" : "中文"));
 
 function toggleLang() {
   setLocale(locale.value === "zh" ? "en" : "zh");
@@ -138,22 +143,38 @@ onMounted(() => {
 .lang-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
+  gap: 5px;
+  padding: 7px 12px;
+  border-radius: 8px;
   background: transparent;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-2);
   color: var(--color-text-muted);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.2s, color 0.2s;
-  font-family: var(--font-sans);
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+  font-family: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  white-space: nowrap;
 }
 
 .lang-toggle:hover {
-  border-color: rgba(99, 102, 241, 0.4);
+  border-color: rgba(229, 62, 62, 0.45);
   color: var(--color-text);
+  background: rgba(229, 62, 62, 0.06);
+}
+
+.lang-toggle__current {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.lang-toggle__sep {
+  color: var(--color-text-dim);
+  font-size: 0.75rem;
+}
+
+.lang-toggle__switch {
+  color: var(--color-primary-light);
 }
 
 .nav__github {
