@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/joho/godotenv"
 )
 
@@ -30,13 +31,24 @@ func main() {
 		utilities.Warn("未找到 .env 文件，使用系统环境变量: %v", err)
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	// 根据运行时环境选择执行模式：
+	//   - 本地模式：启动 cron 调度器 + MCP stdio 服务器（长驻进程）
+	//   - AWS Lambda 模式：注册 Lambda 处理函数，由 Lambda 运行时驱动单次执行
+	if utilities.IsLocalMode() {
+		utilities.LogProgress("Main", "Startup", "运行模式=local，启动 cron+MCP stdio 服务器")
 
-	if err := run(ctx); err != nil {
-		utilities.Error("fatal: %v", err)
-		os.Exit(1)
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+
+		if err := run(ctx); err != nil {
+			utilities.Error("fatal: %v", err)
+			os.Exit(1)
+		}
+		return
 	}
+
+	utilities.LogProgress("Main", "Startup", "运行模式=lambda，注册 Lambda 处理函数")
+	lambda.StartWithOptions(lambdaHandler, lambda.WithContext(context.Background()))
 }
 
 // run 初始化所有依赖，并行启动定时任务调度器与 MCP stdio 服务器，
@@ -151,6 +163,127 @@ func run(ctx context.Context) error {
 		"MCP 服务器已正常关闭",
 	)
 
+	return nil
+}
+
+// LambdaEvent 是 Lambda 函数接收的触发事件结构。
+// 支持 EventBridge 定时触发（source="aws.events"）和手动调用（source=""）。
+// 其余字段由 Lambda 运行时填充，业务逻辑无需关心。
+type LambdaEvent struct {
+	// Source 标识触发来源，EventBridge 定时规则为 "aws.events"。
+	Source string `json:"source"`
+
+	// DetailType 描述事件类型，如 "Scheduled Event"。
+	DetailType string `json:"detail-type"`
+}
+
+// LambdaResponse 是 Lambda 函数的返回结构，供调用方或 EventBridge 记录。
+type LambdaResponse struct {
+	// Status 表示本次执行结果，"ok" 或 "error"。
+	Status string `json:"status"`
+
+	// Message 包含执行摘要或错误描述。
+	Message string `json:"message"`
+}
+
+// lambdaHandler 是注册到 AWS Lambda 运行时的处理函数。
+// 每次 Lambda 调用触发一次完整的数据同步流程（迁移 + 同步），不启动 cron 和 MCP 服务器。
+// ctx 由 Lambda 运行时注入，携带调用超时信息。
+//
+// 参数：
+//   - ctx   : Lambda 运行时上下文，含调用截止时间
+//   - event : 触发事件（EventBridge 定时规则或手动调用）
+//
+// 返回：
+//   - LambdaResponse : 执行结果摘要
+//   - error          : 执行失败时返回错误，Lambda 运行时将标记本次调用为失败
+func lambdaHandler(ctx context.Context, event LambdaEvent) (LambdaResponse, error) {
+	start := time.Now()
+	utilities.LogStart("Main", "LambdaHandler")
+	utilities.LogProgress("Main", "LambdaHandler",
+		fmt.Sprintf("触发来源: source=%q detail-type=%q", event.Source, event.DetailType),
+	)
+
+	if err := runLambda(ctx); err != nil {
+		utilities.LogError("Main", "LambdaHandler", err, time.Since(start))
+		return LambdaResponse{Status: "error", Message: err.Error()}, err
+	}
+
+	utilities.LogSuccess("Main", "LambdaHandler", time.Since(start))
+	return LambdaResponse{
+		Status:  "ok",
+		Message: fmt.Sprintf("数据同步完成，耗时 %s", time.Since(start).Round(time.Millisecond)),
+	}, nil
+}
+
+// runLambda 在 AWS Lambda 环境中执行一次完整的数据同步流程。
+// 与 run() 的区别：
+//   - 不启动 cron 调度器（Lambda 由 EventBridge 定时规则驱动）
+//   - 不启动 MCP stdio 服务器（Lambda 无持久连接）
+//   - 执行完成后立即返回，由 Lambda 运行时负责进程生命周期
+//
+// 参数：
+//   - ctx : Lambda 运行时上下文，携带调用超时信息
+//
+// 返回：
+//   - error : 初始化、迁移或同步失败时返回错误
+func runLambda(ctx context.Context) error {
+	utilities.LogProgress("Main", "runLambda", "正在初始化 Lambda 执行环境...")
+
+	dbEnv, err := utilities.ResolveDBEnvironment()
+	if err != nil {
+		utilities.LogError("Main", "runLambda", err, 0, "step=ResolveDBEnvironment")
+		return fmt.Errorf("数据库环境解析失败: %w", err)
+	}
+
+	dbCfg := buildDBConfig(dbEnv)
+
+	scraperCfg := &services.AdvisoryScraperConfig{
+		MaxPages:       0,
+		RequestTimeout: 30 * time.Second,
+		PerPage:        100,
+		RetryMax:       5,
+		RetryBackoff:   2 * time.Second,
+		Token:          getEnv("GITHUB_TOKEN", ""),
+	}
+
+	timezone := getEnv("DB_TIMEZONE", "Asia/Shanghai")
+
+	mycertCfg := &services.MycertScraperConfig{
+		MaxPages:       0,
+		RequestTimeout: 30 * time.Second,
+		FetchDetail:    true,
+	}
+
+	circlCfg := &services.CirclScraperConfig{
+		RequestTimeout: 30 * time.Second,
+		RetryMax:       5,
+		RetryBackoff:   2 * time.Second,
+		RateLimit:      500 * time.Millisecond,
+	}
+
+	advisoryJob, err := job.NewAdvisoryJob(
+		dbCfg, scraperCfg, mycertCfg, circlCfg, timezone,
+		IsGithubAdvisoryTurnOn,
+		IsMycertAdvisoryTurnOn,
+		IsCirclCVETurnOn,
+	)
+	if err != nil {
+		utilities.LogError("Main", "runLambda", err, 0, "step=NewAdvisoryJob")
+		return fmt.Errorf("初始化定时任务失败: %w", err)
+	}
+
+	if err := advisoryJob.MigrateAll(ctx); err != nil {
+		utilities.LogError("Main", "runLambda", err, 0, "step=MigrateAll")
+		return fmt.Errorf("数据库迁移失败: %w", err)
+	}
+
+	// Lambda 模式下直接执行一次全量同步，不启动 cron 调度器。
+	advisoryJob.RunNow(ctx)
+
+	utilities.LogProgress("Main", "runLambda", "Lambda 数据同步执行完毕",
+		fmt.Sprintf("timezone=%s", timezone),
+	)
 	return nil
 }
 

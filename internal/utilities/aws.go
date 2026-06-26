@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+// DBEnvironment 描述数据库连接应使用的运行时环境类型。
+type DBEnvironment int
+
+const (
+	// DBEnvLocal 表示本地开发环境，强制使用 PostgreSQL，禁止使用任何云数据库服务。
+	DBEnvLocal DBEnvironment = iota
+
+	// DBEnvAWS 表示 AWS 生产环境，使用 Amazon Aurora DSQL。
+	DBEnvAWS
+)
+
 // IsRunInAWS 检查当前进程是否运行在 AWS 环境中，并验证 AWS 凭证的有效性。
 //
 // 判断逻辑：
@@ -112,17 +123,6 @@ func IsLocalMode() bool {
 
 	return !onAWS && !onAliyun
 }
-
-// DBEnvironment 描述数据库连接应使用的运行时环境类型。
-type DBEnvironment int
-
-const (
-	// DBEnvLocal 表示本地开发环境，强制使用 PostgreSQL，禁止使用任何云数据库服务。
-	DBEnvLocal DBEnvironment = iota
-
-	// DBEnvAWS 表示 AWS 生产环境，使用 Amazon Aurora DSQL。
-	DBEnvAWS
-)
 
 // String 返回 DBEnvironment 的可读名称，用于日志输出。
 func (e DBEnvironment) String() string {
