@@ -19,15 +19,23 @@ const (
 
 // IsRunInAWS 检查当前进程是否运行在 AWS 环境中，并验证 AWS 凭证的有效性。
 //
-// 判断逻辑：
-//  1. 读取环境变量 IS_AWS；若不为 "true" 则直接返回 false
-//  2. 当 IS_AWS=true 时，验证 AWS_ACCESS_KEY_ID 和 AWS_SECRET_ACCESS_KEY
-//     均不为空且不包含无效占位符值
+// 判断逻辑（按优先级）：
+//  1. 若 AWS_LAMBDA_RUNTIME_API 存在，说明当前在 Lambda 运行时内，
+//     凭证由 IAM 执行角色自动注入（AWS_ACCESS_KEY_ID + AWS_SESSION_TOKEN），
+//     无需 IS_AWS=true，直接返回 true。
+//  2. 否则读取 IS_AWS 环境变量；若不为 "true" 则返回 false。
+//  3. IS_AWS=true 时，验证 AWS_ACCESS_KEY_ID 和 AWS_SECRET_ACCESS_KEY
+//     均不为空且不包含无效占位符值。
 //
 // 返回：
-//   - true  : IS_AWS=true 且两个凭证均通过校验
-//   - false : IS_AWS!=true，或任意凭证校验失败
+//   - true  : Lambda 运行时内，或 IS_AWS=true 且凭证通过校验
+//   - false : 非 Lambda 且 IS_AWS!=true，或凭证校验失败
 func IsRunInAWS() bool {
+	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
+		LogProgress("AWSUtil", "IsRunInAWS", "检测到 AWS_LAMBDA_RUNTIME_API，确认为 Lambda 运行时")
+		return true
+	}
+
 	isAws := awsEnv("IS_AWS", "false") == "true"
 
 	LogProgress("AWSUtil", "IsRunInAWS", fmt.Sprintf("IS_AWS=%v", isAws))
@@ -108,18 +116,18 @@ func awsEnv(key, fallback string) string {
 // IsLocalMode 检测当前进程是否运行在本地开发环境中。
 //
 // 判断逻辑：当以下所有云运行时环境变量均不存在时，认为处于本地模式：
-//   - AWS Lambda : _LAMBDA_SERVER_PORT 且 AWS_LAMBDA_RUNTIME_API
+//   - AWS Lambda : AWS_LAMBDA_RUNTIME_API（Lambda 运行时唯一可靠标识符）
 //   - Alibaba Cloud FC : FC_FUNCTION_NAME
+//
+// 注意：_LAMBDA_SERVER_PORT 不是标准 Lambda 环境变量，不作为判断依据。
+// AWS_LAMBDA_RUNTIME_API 由 Lambda 运行时在所有调用模式下注入，是唯一可靠标识符。
 //
 // 返回：
 //   - true  : 未检测到任何云运行时，处于本地开发模式
 //   - false : 检测到至少一种云运行时
 func IsLocalMode() bool {
-	lambdaPort := os.Getenv("_LAMBDA_SERVER_PORT") != ""
-	lambdaAPI := os.Getenv("AWS_LAMBDA_RUNTIME_API") != ""
-	fcFunc := os.Getenv("FC_FUNCTION_NAME") != ""
-	onAWS := lambdaPort && lambdaAPI
-	onAliyun := fcFunc
+	onAWS := os.Getenv("AWS_LAMBDA_RUNTIME_API") != ""
+	onAliyun := os.Getenv("FC_FUNCTION_NAME") != ""
 
 	return !onAWS && !onAliyun
 }

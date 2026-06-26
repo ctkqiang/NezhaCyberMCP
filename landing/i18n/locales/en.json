@@ -86,10 +86,7 @@
     "button": "View Setup Guide",
     "config_title": "Add to your MCP config — that's it",
     "tab_local": "Local",
-    "tab_lambda": "AWS Lambda",
-    "soon": "Soon",
-    "lambda_soon": "AWS Lambda deployment coming soon",
-    "lambda_soon_desc": "AWS Lambda deployment is coming soon. For now, run the server locally using the Local tab."
+    "tab_lambda": "AWS Lambda"
   },
   "install": {
     "badge": "Installation Guide",

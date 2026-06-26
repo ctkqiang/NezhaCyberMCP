@@ -29,13 +29,11 @@
                   <i class="pi pi-desktop" /> {{ $t("cta.tab_local") }}
                 </button>
                 <button
-                  class="code-tab code-tab--soon"
+                  class="code-tab"
                   :class="{ 'code-tab--active': activeTab === 'lambda' }"
                   @click="activeTab = 'lambda'"
-                  :title="$t('cta.lambda_soon')"
                 >
                   <i class="pi pi-cloud" /> {{ $t("cta.tab_lambda") }}
-                  <span class="soon-badge">{{ $t("cta.soon") }}</span>
                 </button>
               </div>
               <button class="code-copy" @click="copy" :title="copied ? 'Copied!' : 'Copy'">
@@ -53,9 +51,14 @@
 <span class="t-brace">}</span></code></pre>
             </div>
 
-            <div v-else class="lambda-placeholder">
-              <i class="pi pi-cloud" />
-              <p>{{ $t("cta.lambda_soon_desc") }}</p>
+            <div v-else>
+              <pre class="code-block__body"><code><span class="t-brace">{</span>
+  <span class="t-key">"mcpServers"</span><span class="t-colon">:</span> <span class="t-brace">{</span>
+    <span class="t-key">"nezha-cyber"</span><span class="t-colon">:</span> <span class="t-brace">{</span>
+      <span class="t-key">"url"</span><span class="t-colon">:</span> <span class="t-str">"https://mcp.nezhacyber.xin/sse"</span>
+    <span class="t-brace">}</span>
+  <span class="t-brace">}</span>
+<span class="t-brace">}</span></code></pre>
             </div>
           </div>
         </div>
@@ -68,7 +71,7 @@
 const copied = ref(false);
 const activeTab = ref<"local" | "lambda">("local");
 
-const configSnippet = `{
+const localConfig = `{
   "mcpServers": {
     "nezha-cyber": {
       "command": "./advisory"
@@ -76,8 +79,17 @@ const configSnippet = `{
   }
 }`;
 
+const lambdaConfig = `{
+  "mcpServers": {
+    "nezha-cyber": {
+      "url": "https://mcp.nezhacyber.xin/sse"
+    }
+  }
+}`;
+
 async function copy() {
-  await navigator.clipboard.writeText(configSnippet);
+  const text = activeTab.value === "local" ? localConfig : lambdaConfig;
+  await navigator.clipboard.writeText(text);
   copied.value = true;
   setTimeout(() => (copied.value = false), 2000);
 }

@@ -86,10 +86,7 @@
     "button": "查看配置指南",
     "config_title": "添加到你的 MCP 配置——就这么简单",
     "tab_local": "本地运行",
-    "tab_lambda": "AWS Lambda",
-    "soon": "即将推出",
-    "lambda_soon": "AWS Lambda 部署即将推出",
-    "lambda_soon_desc": "AWS Lambda 部署功能即将上线。目前请使用「本地运行」标签页在本机启动服务器。"
+    "tab_lambda": "AWS Lambda"
   },
   "install": {
     "badge": "安装指南",
@@ -144,7 +141,7 @@
       "step2_note": "切勿将 API 密钥提交到版本控制系统，请使用 .env 文件或密钥管理器。",
       "step3_title": "启动 Codex",
       "step3_desc": "在项目目录中运行 `codex`，Codex 会读取代码库并等待指令。",
-      "verify": "运行 codex --version 确认安装，预期输出：openai/codex x.x.x。"
+      "verify": "运行 codex --version 确认安装，预期输出：@openai/codex x.x.x。"
     },
     "s5": {
       "title": "NezhaCyberMCP",
