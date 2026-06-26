@@ -3,9 +3,12 @@ package services
 import (
 	"context"
 	"fmt"
+	"nezha_cyber_mcp/internal/utilities"
 	"strings"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/dsql/auth"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlserver"
@@ -16,11 +19,12 @@ import (
 type DatabaseType int
 
 const (
-	PostgreSQL DatabaseType = iota // PostgreSQL（默认，推荐生产环境使用）
-	MySQL                          // MySQL / MariaDB
-	SQLServer                      // Microsoft SQL Server
-	Oracle                         // Oracle Database（暂未实现）
-	QuestDB                        // QuestDB 时序数据库（暂未实现）
+	PostgreSQL       DatabaseType = iota // PostgreSQL（默认，推荐生产环境使用）
+	MySQL                                // MySQL / MariaDB
+	SQLServer                            // Microsoft SQL Server
+	Oracle                               // Oracle Database（暂未实现）
+	QuestDB                              // QuestDB 时序数据库（暂未实现）
+	AmazonAuroraDSQL                     // Amazon Aurora DSQL 分布式 SQL 数据库（暂未实现）
 )
 
 // DatabaseConfiguration 保存建立数据库连接所需的全部参数。
@@ -30,20 +34,22 @@ const (
 //   - Host            : 数据库服务器主机名或 IP 地址
 //   - Port            : 数据库监听端口（PostgreSQL 默认 5432，MySQL 默认 3306）
 //   - User            : 数据库登录用户名
-//   - Password        : 数据库登录密码
+//   - Password        : 数据库登录密码（AmazonAuroraDSQL 模式下由 InitDatabase 动态填充，无需手动设置）
 //   - DBName          : 目标数据库名称
 //   - SSLMode         : TLS/SSL 模式；nil 时使用驱动默认值（PostgreSQL 为 "prefer"）
+//   - AWSRegion       : AWS 区域标识符，仅 AmazonAuroraDSQL 类型使用；空字符串时回退到 AWS_REGION 环境变量
 //   - MaxOpenConns    : 连接池最大打开连接数；0 表示使用驱动默认值
 //   - MaxIdleConns    : 连接池最大空闲连接数；0 表示使用驱动默认值
 //   - ConnMaxLifetime : 连接最大存活时间；0 表示不限制
 type DatabaseConfiguration struct {
-	Type     DatabaseType
-	Host     string
-	Port     string
-	User     string
-	Password string
-	DBName   string
-	SSLMode  *string // nil => 使用驱动默认值 (libpq "prefer")
+	Type      DatabaseType
+	Host      string
+	Port      string
+	User      string
+	Password  string
+	DBName    string
+	SSLMode   *string // nil => 使用驱动默认值 (libpq "prefer")
+	AWSRegion string  // 仅 AmazonAuroraDSQL 使用；空字符串时从 AWS_REGION 环境变量读取
 
 	// 可选的连接池调优参数；零值将回退到合理的默认值。
 	MaxOpenConns    int
@@ -90,10 +96,13 @@ func (d *Database) Close() error {
 }
 
 // buildDSN 根据 DatabaseConfiguration 构造对应数据库驱动的 DSN 并返回 gorm.Dialector。
-// 目前支持 PostgreSQL、MySQL、SQL Server；其他类型返回错误。
+// 支持 PostgreSQL、MySQL、SQL Server 和 Amazon Aurora DSQL。
+//
+// 注意：AmazonAuroraDSQL 类型的 DSN 中密码字段由调用方（InitDatabase）在运行时动态注入，
+// 此函数接收已填充 Password 字段的 cfg，直接构造完整 DSN。
 //
 // 参数：
-//   - cfg : 数据库连接配置
+//   - cfg : 数据库连接配置（AmazonAuroraDSQL 时 Password 字段应已包含 IAM token）
 //
 // 返回：
 //   - gorm.Dialector : 对应驱动的方言实例
@@ -101,8 +110,6 @@ func (d *Database) Close() error {
 func buildDSN(cfg DatabaseConfiguration) (gorm.Dialector, error) {
 	switch cfg.Type {
 	case PostgreSQL:
-		// PostgreSQL DSN 使用键值对格式。
-		// SSLMode 未显式指定时默认为 disable，兼容本地 Docker 等不开 TLS 的环境。
 		sslMode := "disable"
 		if cfg.SSLMode != nil {
 			sslMode = *cfg.SSLMode
@@ -113,33 +120,99 @@ func buildDSN(cfg DatabaseConfiguration) (gorm.Dialector, error) {
 		return postgres.Open(b.String()), nil
 
 	case MySQL:
-		// MySQL DSN 使用 charset=utf8mb4 确保完整 Unicode 支持，parseTime=True 自动解析时间类型。
 		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 			cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.DBName)
 		return mysql.Open(dsn), nil
 
 	case SQLServer:
-		// SQL Server DSN 使用标准 URL 格式。
 		dsn := fmt.Sprintf("sqlserver://%s:%s@%s:%s?database=%s",
 			cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.DBName)
 		return sqlserver.Open(dsn), nil
+
+	case AmazonAuroraDSQL:
+		// Aurora DSQL 底层走 PostgreSQL 协议，但强制要求 TLS（sslmode=require）。
+		// 密码字段此时已由 InitDatabase 填充为 IAM SigV4 presigned token。
+		// Aurora DSQL 不使用标准端口，默认端口为 5432，由调用方在 cfg.Port 中指定。
+		port := cfg.Port
+		if port == "" {
+			port = "5432"
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "host=%s user=%s password=%s dbname=%s port=%s sslmode=require",
+			cfg.Host, cfg.User, cfg.Password, cfg.DBName, port)
+		return postgres.Open(b.String()), nil
 
 	default:
 		return nil, fmt.Errorf("数据库类型 %d 不受支持或尚未实现", cfg.Type)
 	}
 }
 
+// generateDSQLToken 使用 AWS SDK 为 Aurora DSQL 集群生成 IAM SigV4 presigned 认证 token。
+// token 有效期为 15 分钟，每次建立连接前必须重新生成。
+//
+// 参数：
+//   - ctx             : 请求上下文
+//   - clusterEndpoint : Aurora DSQL 集群端点（即 cfg.Host）
+//   - region          : AWS 区域标识符（如 "us-east-1"）
+//
+// 返回：
+//   - string : 可直接用作 PostgreSQL 密码的 presigned token
+//   - error  : AWS 配置加载失败或 token 生成失败时返回错误
+func generateDSQLToken(ctx context.Context, clusterEndpoint, region string) (string, error) {
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
+	if err != nil {
+		return "", fmt.Errorf("加载 AWS 默认配置失败: %w", err)
+	}
+
+	token, err := auth.GenerateDBConnectAdminAuthToken(
+		ctx,
+		clusterEndpoint,
+		region,
+		awsCfg.Credentials,
+	)
+	if err != nil {
+		return "", fmt.Errorf("生成 Aurora DSQL IAM token 失败: %w", err)
+	}
+
+	return token, nil
+}
+
 // InitDatabase 根据配置初始化数据库连接，配置连接池参数，并通过 Ping 验证连通性。
 // 若 Ping 失败，会自动关闭已建立的连接并返回错误。
 //
+// 对于 AmazonAuroraDSQL 类型，InitDatabase 会在建立连接前自动生成 IAM SigV4 presigned token
+// 并将其注入 cfg.Password 字段，调用方无需手动提供密码。
+// token 有效期为 15 分钟，因此每次调用 InitDatabase 都会重新生成。
+//
 // 参数：
-//   - ctx : 请求上下文，用于 Ping 超时控制
+//   - ctx : 请求上下文，用于 token 生成和 Ping 超时控制
 //   - cfg : 数据库连接配置
 //
 // 返回：
 //   - *Database : 初始化成功的数据库封装实例
-//   - error     : 连接、配置或 Ping 失败时返回包装后的错误
+//   - error     : token 生成、连接、配置或 Ping 失败时返回包装后的错误
 func InitDatabase(ctx context.Context, cfg DatabaseConfiguration) (*Database, error) {
+	start := time.Now()
+	utilities.LogStart("Database", "InitDatabase")
+
+	if cfg.Type == AmazonAuroraDSQL {
+		region := cfg.AWSRegion
+		if region == "" {
+			region = utilities.AWSRegion("us-east-1")
+		}
+		utilities.LogProgress("Database", "InitDatabase",
+			"正在生成 Aurora DSQL IAM token",
+			fmt.Sprintf("endpoint=%s", cfg.Host),
+			fmt.Sprintf("region=%s", region),
+		)
+		token, err := generateDSQLToken(ctx, cfg.Host, region)
+		if err != nil {
+			utilities.LogError("Database", "InitDatabase", err, time.Since(start), "step=GenerateDSQLToken")
+			return nil, fmt.Errorf("生成 Aurora DSQL IAM token 失败: %w", err)
+		}
+		cfg.Password = token
+	}
+
 	dialector, err := buildDSN(cfg)
 	if err != nil {
 		return nil, err
@@ -166,11 +239,15 @@ func InitDatabase(ctx context.Context, cfg DatabaseConfiguration) (*Database, er
 		sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	}
 
-	// 通过 Ping 验证数据库实际可达，失败时关闭连接并返回错误。
 	if err := sqlDB.PingContext(ctx); err != nil {
 		_ = sqlDB.Close()
+		utilities.LogError("Database", "InitDatabase", err, time.Since(start), "step=Ping")
 		return nil, fmt.Errorf("ping 数据库失败: %w", err)
 	}
 
+	utilities.LogSuccess("Database", "InitDatabase", time.Since(start),
+		fmt.Sprintf("type=%d", cfg.Type),
+		fmt.Sprintf("host=%s", cfg.Host),
+	)
 	return &Database{db: db}, nil
 }
