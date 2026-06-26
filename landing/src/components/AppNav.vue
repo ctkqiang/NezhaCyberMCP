@@ -40,6 +40,18 @@
       <a href="#features" @click="menuOpen = false">{{ $t("nav.features") }}</a>
       <a href="#sources" @click="menuOpen = false">{{ $t("nav.sources") }}</a>
       <a href="#tools" @click="menuOpen = false">{{ $t("nav.tools") }}</a>
+      <a href="/install" @click="menuOpen = false" class="nav__install-link">
+        <i class="pi pi-book" />{{ $t("nav.install") }}
+      </a>
+      <a
+        href="https://github.com/ctkqiang/NezhaCyberMCP"
+        target="_blank"
+        rel="noopener"
+        @click="menuOpen = false"
+        class="nav__mobile-github"
+      >
+        <i class="pi pi-github" />{{ $t("nav.github") }}
+      </a>
       <button class="lang-toggle" @click="toggleLang">
         <span>{{ currentFlag }} {{ currentLangName }}</span>
         <span class="lang-toggle__sep">/</span>
@@ -206,32 +218,49 @@ onMounted(() => {
 .nav__mobile {
   display: none;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px 24px 16px;
-  background: rgba(10, 14, 26, 0.95);
+  gap: 0;
+  padding: 0 16px;
+  background: var(--color-surface);
   border-top: 1px solid var(--color-border);
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.3s ease;
+  transition: max-height 0.35s ease, padding 0.35s ease;
 }
 
 .nav__mobile--open {
-  max-height: 300px;
+  max-height: 420px;
+  padding: 8px 16px 20px;
 }
 
-.nav__mobile a,
-.nav__mobile button {
-  padding: 12px 0;
+.nav__mobile a {
+  display: flex;
+  align-items: center;
+  padding: 14px 0;
   font-size: 1rem;
+  font-weight: 500;
   color: var(--color-text-muted);
   border-bottom: 1px solid var(--color-border);
-  display: block;
+  min-height: 48px;
+  transition: color 0.15s;
+}
+
+.nav__mobile a:hover { color: var(--color-text); }
+
+.nav__mobile a:last-of-type { border-bottom: none; }
+
+.nav__mobile .lang-toggle {
   width: 100%;
-  text-align: left;
+  justify-content: flex-start;
+  padding: 14px 0;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  min-height: 48px;
 }
 
 .nav__mobile-theme {
-  padding: 12px 0;
+  padding: 14px 0 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -246,11 +275,27 @@ onMounted(() => {
   }
 
   .nav__hamburger {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border-2);
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .nav__hamburger:hover {
+    background: rgba(229, 62, 62, 0.08);
+    border-color: rgba(229, 62, 62, 0.3);
   }
 
   .nav__mobile {
     display: flex;
+  }
+
+  .nav__inner {
+    gap: 12px;
   }
 }
 </style>

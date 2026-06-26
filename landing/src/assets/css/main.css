@@ -302,13 +302,33 @@ img { max-width: 100%; display: block; }
 }
 
 @media (max-width: 768px) {
-  .section   { padding: 64px 0; }
+  .section    { padding: 64px 0; }
+  .section-sm { padding: 48px 0; }
+
   .grid-2,
   .grid-3,
-  .grid-4    { grid-template-columns: 1fr; }
+  .grid-4 { grid-template-columns: 1fr; }
+
   .container { padding: 0 16px; }
+
+  /* Buttons — full-width on mobile for easy tap */
+  .btn-primary,
+  .btn-secondary {
+    width: 100%;
+    justify-content: center;
+    padding: 14px 20px;
+    min-height: 48px;
+  }
+
+  /* Cards — reduce padding on small screens */
+  .card { padding: 20px; }
 }
 
 @media (max-width: 480px) {
-  .section { padding: 48px 0; }
+  .section    { padding: 48px 0; }
+  .section-sm { padding: 36px 0; }
+  .container  { padding: 0 12px; }
+
+  /* Ensure minimum touch target size (WCAG 2.5.5) */
+  a, button { min-height: 44px; }
 }

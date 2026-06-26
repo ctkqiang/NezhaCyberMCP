@@ -326,8 +326,20 @@ func buildDBConfig(env utilities.DBEnvironment) services.DatabaseConfiguration {
 
 	switch env {
 	case utilities.DBEnvAWS:
+		dsqlEndpoint := getEnv("DSQL_ENDPOINT", "")
+		if dsqlEndpoint == "" {
+			// DSQL_ENDPOINT 未配置，自动回退到 SQLite。
+			// 这允许 Lambda 在没有外部数据库的情况下正常运行（数据存储在 /tmp，重启后清空）。
+			utilities.LogProgress("Main", "buildDBConfig",
+				"DSQL_ENDPOINT 未设置，自动回退到 SQLite",
+				fmt.Sprintf("path=%s", "/tmp/nezha_cyber.db"),
+			)
+			return services.DatabaseConfiguration{
+				Type: services.SQLite,
+			}
+		}
 		base.Type = services.AmazonAuroraDSQL
-		base.Host = getEnv("DSQL_ENDPOINT", base.Host)
+		base.Host = dsqlEndpoint
 		base.AWSRegion = utilities.AWSRegion("us-east-1")
 		base.Password = ""
 		utilities.LogProgress("Main", "buildDBConfig", "数据库驱动=AmazonAuroraDSQL",

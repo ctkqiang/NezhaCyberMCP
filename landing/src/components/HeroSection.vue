@@ -326,15 +326,73 @@ const stats = [
   .hero__stats {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .hero__visual {
+    max-width: 560px;
+    margin: 0 auto;
+    width: 100%;
+  }
 }
 
-@media (max-width: 480px) {
-  .hero__stats {
-    grid-template-columns: repeat(2, 1fr);
+@media (max-width: 768px) {
+  .hero {
+    padding: 100px 0 64px;
+    min-height: auto;
+  }
+
+  .hero__title {
+    font-size: clamp(1.8rem, 7vw, 2.6rem);
+  }
+
+  .hero__desc {
+    font-size: 1rem;
   }
 
   .hero__actions {
     flex-direction: column;
+    gap: 12px;
+  }
+
+  .hero__stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .hero__stat-value {
+    font-size: 1.25rem;
+  }
+
+  /* Terminal — prevent horizontal overflow */
+  .terminal {
+    font-size: 0.78rem;
+  }
+
+  .terminal__body {
+    padding: 14px;
+  }
+
+  .terminal__line--divider {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero {
+    padding: 88px 0 48px;
+  }
+
+  .hero__stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .hero__actions {
+    flex-direction: column;
+  }
+
+  .terminal {
+    font-size: 0.72rem;
+    border-radius: 12px;
   }
 }
 </style>
