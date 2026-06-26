@@ -159,7 +159,12 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("MCP 服务器异常退出: %w", err)
 	}
 
-	utilities.LogProgress("Main", "Shutdown", "MCP 服务器已正常关闭")
+	utilities.LogProgress(
+		"Main",
+		"Shutdown",
+		"MCP 服务器已正常关闭",
+	)
+
 	return nil
 }
 
@@ -176,5 +181,6 @@ func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
+
 	return fallback
 }

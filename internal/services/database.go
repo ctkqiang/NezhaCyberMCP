@@ -95,6 +95,29 @@ func (d *Database) Close() error {
 	return sqlDB.Close()
 }
 
+// ValidateConfiguration 校验 DatabaseConfiguration 与当前运行时环境的兼容性。
+//
+// 防护规则：
+//   - 本地开发环境（utilities.IsLocalMode() == true）中，禁止使用 AmazonAuroraDSQL 类型。
+//     若检测到此冲突，立即返回错误，阻止连接建立，防止开发者意外连接生产数据库。
+//   - 其他类型在本地模式下均允许使用。
+//
+// 参数：
+//   - cfg : 待校验的数据库连接配置
+//
+// 返回：
+//   - error : 配置与环境不兼容时返回描述性错误；兼容时返回 nil
+func ValidateConfiguration(cfg DatabaseConfiguration) error {
+	if utilities.IsLocalMode() && cfg.Type == AmazonAuroraDSQL {
+		return fmt.Errorf(
+			"配置错误：本地开发环境中禁止使用 AmazonAuroraDSQL 驱动 — " +
+				"本地开发必须使用 PostgreSQL（Type=0）。" +
+				"若需连接 AWS 生产数据库，请在云运行时环境中部署后再使用",
+		)
+	}
+	return nil
+}
+
 // buildDSN 根据 DatabaseConfiguration 构造对应数据库驱动的 DSN 并返回 gorm.Dialector。
 // 支持 PostgreSQL、MySQL、SQL Server 和 Amazon Aurora DSQL。
 //
@@ -194,6 +217,11 @@ func generateDSQLToken(ctx context.Context, clusterEndpoint, region string) (str
 func InitDatabase(ctx context.Context, cfg DatabaseConfiguration) (*Database, error) {
 	start := time.Now()
 	utilities.LogStart("Database", "InitDatabase")
+
+	if err := ValidateConfiguration(cfg); err != nil {
+		utilities.LogError("Database", "InitDatabase", err, time.Since(start), "step=ValidateConfiguration")
+		return nil, err
+	}
 
 	if cfg.Type == AmazonAuroraDSQL {
 		region := cfg.AWSRegion
