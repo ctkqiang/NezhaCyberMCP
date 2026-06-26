@@ -1,0 +1,97 @@
+{
+  "nav": {
+    "features": "Features",
+    "sources": "Data Sources",
+    "tools": "MCP Tools",
+    "github": "GitHub"
+  },
+  "hero": {
+    "badge": "Model Context Protocol Server",
+    "title": "AI-Powered CVE Intelligence",
+    "subtitle": "NezhaCyberMCP",
+    "description": "Connect your AI assistant to real-time vulnerability data from CIRCL, GitHub Advisory, and MyCERT. Query CVEs, analyze threats, and generate security reports — all through natural language.",
+    "cta_primary": "Get Started",
+    "cta_secondary": "View on GitHub",
+    "stats": {
+      "cves": "CVEs Indexed",
+      "advisories": "GitHub Advisories",
+      "mycert": "MyCERT Bulletins",
+      "tools": "MCP Tools"
+    }
+  },
+  "features": {
+    "title": "Everything your AI needs to reason about vulnerabilities",
+    "subtitle": "A complete MCP server purpose-built for cybersecurity intelligence",
+    "items": {
+      "realtime": {
+        "title": "Real-Time Sync",
+        "desc": "Automatically syncs CVE data from CIRCL, GitHub Advisory Database, and MyCERT on a scheduled cron job."
+      },
+      "search": {
+        "title": "Semantic Search",
+        "desc": "Search across all three data sources simultaneously by keyword, severity, vendor, product, or CWE ID."
+      },
+      "lambda": {
+        "title": "AWS Lambda Ready",
+        "desc": "Detects runtime environment automatically. Runs as a long-lived MCP server locally or as a Lambda function on AWS."
+      },
+      "secure": {
+        "title": "Credential Safety",
+        "desc": "All sensitive values are masked in logs. AWS credentials, DB passwords, and API keys never appear in output."
+      },
+      "prompts": {
+        "title": "Built-in Prompts",
+        "desc": "Pre-built prompt templates for security advisories, patch prioritization, stakeholder triage, and weekly reports."
+      },
+      "db": {
+        "title": "Multi-DB Support",
+        "desc": "Supports PostgreSQL, MySQL, SQL Server, Oracle, QuestDB, and Amazon Aurora DSQL via GORM."
+      }
+    }
+  },
+  "sources": {
+    "title": "Three authoritative data sources",
+    "subtitle": "Aggregated, deduplicated, and always up to date",
+    "circl": {
+      "name": "CIRCL CVE",
+      "desc": "Computer Incident Response Center Luxembourg — the authoritative CVE feed with full CVSS scoring and affected package data."
+    },
+    "github": {
+      "name": "GitHub Advisory",
+      "desc": "GitHub's curated security advisory database covering npm, PyPI, Maven, Go, Rust, and more ecosystems."
+    },
+    "mycert": {
+      "name": "MyCERT",
+      "desc": "Malaysia Computer Emergency Response Team — regional security bulletins covering threats relevant to Southeast Asia."
+    }
+  },
+  "tools": {
+    "title": "MCP Tools",
+    "subtitle": "Ask your AI assistant to call these tools directly",
+    "items": {
+      "get_cve": "Look up a specific CVE by ID across all three data sources",
+      "search_cves": "Full-text search with filters for severity, vendor, product, CWE, and date range",
+      "whats_new": "Get the latest CVEs published after a given date",
+      "filter_severity": "Filter CVEs by CRITICAL / HIGH / MEDIUM / LOW severity",
+      "bulk_get": "Retrieve multiple CVEs in a single call",
+      "vuln_trends": "Analyze vulnerability trends over time by severity",
+      "search_by_cpe": "Search CVEs by CPE (Common Platform Enumeration) string",
+      "related_cves": "Find CVEs related to a given CVE by shared CWE or affected packages"
+    }
+  },
+  "cta": {
+    "title": "Ready to give your AI superpowers?",
+    "desc": "Add NezhaCyberMCP to your Claude, Cursor, or any MCP-compatible AI assistant. No database setup required — CVE data is served directly from our infrastructure.",
+    "button": "View Setup Guide",
+    "config_title": "Add to your MCP config — that's it"
+  },
+  "footer": {
+    "tagline": "Built with Go · Powered by MCP · Open Source",
+    "links": {
+      "github": "GitHub",
+      "issues": "Issues",
+      "license": "MIT License"
+    },
+    "copyright": "© 2025 ctkqiang. All rights reserved."
+  }
+}
