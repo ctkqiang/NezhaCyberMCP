@@ -111,9 +111,9 @@ func Log(level LogLevel, format string, a ...interface{}) {
 		APP_NAME, time.Now().Format("2006-01-02 15:04:05"), level.String(), msg)
 	c := levelColor(level)
 	if c != "" {
-		fmt.Printf("%s%s%s\n", c, line, colorReset)
+		fmt.Fprintf(os.Stderr, "%s%s%s\n", c, line, colorReset)
 	} else {
-		fmt.Println(line)
+		fmt.Fprintln(os.Stderr, line)
 	}
 	if level == ERROR && errorCallback != nil {
 		errorCallback(line)
@@ -151,7 +151,7 @@ func Logf(component, operation string, level LogLevel, status string, elapsed ti
 	}
 
 	c := levelColor(level)
-	fmt.Print(buildBlock(header, c, rows))
+	fmt.Fprint(os.Stderr, buildBlock(header, c, rows))
 
 	if level == ERROR && errorCallback != nil {
 		errorCallback(header + " " + status)

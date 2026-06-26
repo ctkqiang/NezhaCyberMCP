@@ -67,18 +67,6 @@ const circlSingleCVEJSON = `{
   }
 }`
 
-// circlListResponseJSON 是 /vulnerability/ 列表端点的最小化 JSON 固件，
-// 包含两条 CVE ID，用于验证分页拉取逻辑。
-const circlListResponseJSON = `{
-  "page": 1,
-  "per_page": 2,
-  "total": 2,
-  "data": [
-    {"vuln_id": "CVE-2021-44228"},
-    {"vuln_id": "CVE-2021-45046"}
-  ]
-}`
-
 // circlSecondCVEJSON 是第二条 CVE 的最小化 JSON 固件，用于列表拉取测试。
 const circlSecondCVEJSON = `{
   "dataType": "CVE_RECORD",
@@ -299,20 +287,18 @@ func TestCirclFetchByCVEID_MockServer(t *testing.T) {
 }
 
 // TestCirclScrapeAndPersist_MockServer 使用 httptest.Server 模拟 CIRCL API，
-// 验证 ScrapeAndPersist 能正确处理列表页与详情页，并将所有记录写入数据库。
+// 验证 ScrapeAndPersist 能正确处理 /last 端点返回的 CVE 数组，并将所有记录写入数据库。
+// CIRCL /api/last 返回格式为 JSON 数组，每个元素是完整的 CVE 记录对象。
 func TestCirclScrapeAndPersist_MockServer(t *testing.T) {
+	// /last 端点返回包含两条完整 CVE 记录的 JSON 数组。
+	listBody := "[" + circlSingleCVEJSON + "," + circlSecondCVEJSON + "]"
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-
-		switch {
-		case r.URL.Path == "/vulnerability/":
-			// 列表端点：返回两条 CVE ID。
-			w.Write([]byte(circlListResponseJSON))
-		case r.URL.Path == "/vulnerability/CVE-2021-44228":
-			w.Write([]byte(circlSingleCVEJSON))
-		case r.URL.Path == "/vulnerability/CVE-2021-45046":
-			w.Write([]byte(circlSecondCVEJSON))
+		switch r.URL.Path {
+		case "/last":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(listBody))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -352,10 +338,10 @@ func TestCirclScrapeAndPersist_HTTP500_Retry(t *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		// 第三次请求成功，返回空列表（触发末页退出）。
+		// 第三次请求成功，返回空 JSON 数组（/api/last 格式，触发末页退出）。
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"page":1,"per_page":10,"total":0,"data":[]}`))
+		w.Write([]byte(`[]`))
 	}))
 	t.Cleanup(srv.Close)
 
