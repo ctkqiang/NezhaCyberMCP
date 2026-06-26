@@ -51,6 +51,15 @@ func (s *MCPServer) Server() *mcp.Server {
 	return s.server
 }
 
+// SetDB 在运行时将数据库连接热注入到 MCPServer 及其 Actions。
+// 供后台初始化 goroutine 在 DB 就绪后调用，无需重启 MCP 服务器。
+//
+// 参数：
+//   - db : 已初始化的 GORM 数据库连接
+func (s *MCPServer) SetDB(db *gorm.DB) {
+	s.actions.SetDB(db)
+}
+
 func (s *MCPServer) registerTools() {
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name: "get_cve",

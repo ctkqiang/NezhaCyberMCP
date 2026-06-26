@@ -69,79 +69,88 @@ func main() {
 func run(ctx context.Context) error {
 	utilities.LogProgress("Main", "Startup", "正在初始化...")
 
-	dbEnv, err := utilities.ResolveDBEnvironment()
-	if err != nil {
-		utilities.LogError("Main", "Startup", err, 0, "step=ResolveDBEnvironment")
-		return fmt.Errorf("数据库环境解析失败: %w", err)
-	}
-
-	dbCfg := buildDBConfig(dbEnv)
-
-	scraperCfg := &services.AdvisoryScraperConfig{
-		MaxPages:       0,
-		RequestTimeout: 30 * time.Second,
-		PerPage:        100,
-		RetryMax:       5,
-		RetryBackoff:   2 * time.Second,
-		Token:          getEnv("GITHUB_TOKEN", ""),
-	}
-
 	timezone := getEnv("DB_TIMEZONE", "Asia/Shanghai")
 
-	mycertCfg := &services.MycertScraperConfig{
-		MaxPages:       0,
-		RequestTimeout: 30 * time.Second,
-		FetchDetail:    true,
-	}
+	// MCP 服务器立即以 nil DB 启动，确保 initialize 握手不被任何 I/O 延迟阻断。
+	// DB 环境解析、连接、迁移和 cron 调度全部在后台 goroutine 中完成。
+	// DB 就绪后通过 SetDB 热注入，无需重启服务器。
+	// DB 不可用时工具调用返回明确错误，握手和工具列表查询始终正常。
+	mcpServer := services.NewMCPServer(nil)
 
-	// circlCfg 的 APIToken 从环境变量 CIRCL_API_TOKEN 读取，不在此处硬编码。
-	// CIRCL 公共 API 无需强制认证，Token 为空时以匿名方式访问。
-	circlCfg := &services.CirclScraperConfig{
-		RequestTimeout: 30 * time.Second,
-		RetryMax:       5,
-		RetryBackoff:   2 * time.Second,
-		RateLimit:      500 * time.Millisecond,
-	}
-
-	advisoryJob, err := job.NewAdvisoryJob(
-		dbCfg, scraperCfg, mycertCfg, circlCfg, timezone,
-		IsGithubAdvisoryTurnOn,
-		IsMycertAdvisoryTurnOn,
-		IsCirclCVETurnOn,
-	)
-	if err != nil {
-		utilities.LogError("Main", "Startup", err, 0)
-		return fmt.Errorf("初始化定时任务失败: %w", err)
-	}
-
-	if err := advisoryJob.MigrateAll(ctx); err != nil {
-		utilities.LogError("Main", "Startup", err, 0)
-		return fmt.Errorf("数据库迁移失败: %w", err)
-	}
-
-	// 启动时立即执行一次全量同步，确保数据库有最新数据供 MCP 工具查询。
-	advisoryJob.RunNow(ctx)
-
-	if err := advisoryJob.Start(ctx); err != nil {
-		utilities.LogError("Main", "Startup", err, 0)
-		return fmt.Errorf("启动定时任务失败: %w", err)
-	}
-	defer advisoryJob.Stop()
-
-	// 为 MCP 服务器建立独立的长连接，与定时任务的短连接隔离。
-	// 定时任务每次触发时自行建立/关闭连接；MCP 服务器需要持久连接响应实时查询。
-	mcpDB, err := services.InitDatabase(ctx, dbCfg)
-	if err != nil {
-		utilities.LogError("Main", "Startup", err, 0, "step=InitMCPDatabase")
-		return fmt.Errorf("初始化 MCP 数据库连接失败: %w", err)
-	}
-	defer func() {
-		if closeErr := mcpDB.Close(); closeErr != nil {
-			utilities.Warn("关闭 MCP 数据库连接失败: %v", closeErr)
+	go func() {
+		dbEnv, err := utilities.ResolveDBEnvironment()
+		if err != nil {
+			utilities.LogError("Main", "BackgroundInit", err, 0, "step=ResolveDBEnvironment")
+			return
 		}
-	}()
 
-	mcpServer := services.NewMCPServer(mcpDB.DB())
+		dbCfg := buildDBConfig(dbEnv)
+
+		scraperCfg := &services.AdvisoryScraperConfig{
+			MaxPages:       0,
+			RequestTimeout: 30 * time.Second,
+			PerPage:        100,
+			RetryMax:       5,
+			RetryBackoff:   2 * time.Second,
+			Token:          getEnv("GITHUB_TOKEN", ""),
+		}
+
+		mycertCfg := &services.MycertScraperConfig{
+			MaxPages:       0,
+			RequestTimeout: 30 * time.Second,
+			FetchDetail:    true,
+		}
+
+		// CIRCL_API_TOKEN 从环境变量读取，不在此处硬编码。
+		circlCfg := &services.CirclScraperConfig{
+			RequestTimeout: 30 * time.Second,
+			RetryMax:       5,
+			RetryBackoff:   2 * time.Second,
+			RateLimit:      500 * time.Millisecond,
+		}
+
+		// 为 MCP 服务器建立独立的长连接，就绪后热注入。
+		mcpDB, dbErr := services.InitDatabase(ctx, dbCfg)
+		if dbErr != nil {
+			utilities.LogWarn("Main", "BackgroundInit",
+				fmt.Sprintf("数据库连接失败，MCP 工具将返回错误直到 DB 就绪: %v", dbErr),
+				0, "step=InitMCPDatabase",
+			)
+		} else {
+			defer func() {
+				if closeErr := mcpDB.Close(); closeErr != nil {
+					utilities.Warn("关闭 MCP 数据库连接失败: %v", closeErr)
+				}
+			}()
+			mcpServer.SetDB(mcpDB.DB())
+		}
+
+		advisoryJob, err := job.NewAdvisoryJob(
+			dbCfg, scraperCfg, mycertCfg, circlCfg, timezone,
+			IsGithubAdvisoryTurnOn,
+			IsMycertAdvisoryTurnOn,
+			IsCirclCVETurnOn,
+		)
+		if err != nil {
+			utilities.LogError("Main", "BackgroundInit", err, 0, "step=NewAdvisoryJob")
+			return
+		}
+
+		if err := advisoryJob.MigrateAll(ctx); err != nil {
+			utilities.LogError("Main", "BackgroundInit", err, 0, "step=MigrateAll")
+			return
+		}
+
+		advisoryJob.RunNow(ctx)
+
+		if err := advisoryJob.Start(ctx); err != nil {
+			utilities.LogError("Main", "BackgroundInit", err, 0, "step=Start")
+			return
+		}
+
+		<-ctx.Done()
+		advisoryJob.Stop()
+	}()
 
 	utilities.LogProgress("Main", "Startup",
 		fmt.Sprintf(
@@ -151,18 +160,12 @@ func run(ctx context.Context) error {
 	)
 
 	// Run 以 stdio 传输模式阻塞运行，直到客户端断开连接或 ctx 被取消。
-	// 当进程收到 SIGINT/SIGTERM 时，ctx 取消会同时终止 MCP 服务器和定时任务。
 	if err := mcpServer.Run(ctx); err != nil {
 		utilities.LogError("Main", "MCPServer", err, 0)
 		return fmt.Errorf("MCP 服务器异常退出: %w", err)
 	}
 
-	utilities.LogProgress(
-		"Main",
-		"Shutdown",
-		"MCP 服务器已正常关闭",
-	)
-
+	utilities.LogProgress("Main", "Shutdown", "MCP 服务器已正常关闭")
 	return nil
 }
 

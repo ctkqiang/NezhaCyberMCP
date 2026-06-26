@@ -13,6 +13,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // DatabaseType 是数据库驱动类型的枚举。
@@ -277,7 +278,9 @@ func InitDatabase(ctx context.Context, cfg DatabaseConfiguration) (*Database, er
 		return nil, err
 	}
 
-	db, err := gorm.Open(dialector, &gorm.Config{})
+	db, err := gorm.Open(dialector, &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("连接数据库失败: %w", err)
 	}

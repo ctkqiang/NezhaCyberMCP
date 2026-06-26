@@ -236,6 +236,15 @@ func NewActions(db *gorm.DB) *Actions {
 	return &Actions{db: db}
 }
 
+// SetDB 在运行时替换底层数据库连接。
+// 用于 DB 在后台就绪后热注入，无需重启 MCP 服务器。
+//
+// 参数：
+//   - db : 已初始化的 GORM 数据库连接
+func (a *Actions) SetDB(db *gorm.DB) {
+	a.db = db
+}
+
 // ---- 辅助函数 ----
 
 // toRecord 将 model.CirclCVE 转换为标准化的 CVERecord 输出结构。
