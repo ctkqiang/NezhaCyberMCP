@@ -27,6 +27,37 @@ const (
 	AmazonAuroraDSQL                     // Amazon Aurora DSQL 分布式 SQL 数据库（暂未实现）
 )
 
+// truncateBody 将原始 HTTP 响应体截断为最多 maxBytes 个字节，
+// 并去除首尾空白，防止将大型 JSON 或 HTML 错误页面原样写入日志或错误消息。
+// 若截断发生，在末尾追加 "…[truncated]" 标记。
+func truncateBody(body []byte, maxBytes int) string {
+	s := strings.TrimSpace(string(body))
+	if len(s) <= maxBytes {
+		return s
+	}
+	return s[:maxBytes] + "…[truncated]"
+}
+
+// String 返回 DatabaseType 的可读名称，用于日志输出。
+func (t DatabaseType) String() string {
+	switch t {
+	case PostgreSQL:
+		return "PostgreSQL"
+	case MySQL:
+		return "MySQL"
+	case SQLServer:
+		return "SQLServer"
+	case Oracle:
+		return "Oracle"
+	case QuestDB:
+		return "QuestDB"
+	case AmazonAuroraDSQL:
+		return "AmazonAuroraDSQL"
+	default:
+		return "Unknown"
+	}
+}
+
 // DatabaseConfiguration 保存建立数据库连接所需的全部参数。
 //
 // 字段说明：
@@ -274,8 +305,9 @@ func InitDatabase(ctx context.Context, cfg DatabaseConfiguration) (*Database, er
 	}
 
 	utilities.LogSuccess("Database", "InitDatabase", time.Since(start),
-		fmt.Sprintf("type=%d", cfg.Type),
+		fmt.Sprintf("driver=%s", cfg.Type.String()),
 		fmt.Sprintf("host=%s", cfg.Host),
+		fmt.Sprintf("db=%s", cfg.DBName),
 	)
 	return &Database{db: db}, nil
 }

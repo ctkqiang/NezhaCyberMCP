@@ -11,7 +11,6 @@ import (
 	"nezha_cyber_mcp/internal/utilities"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -314,7 +313,7 @@ func (s *GithubAdvisoryService) doRequest(ctx context.Context, url string) ([]by
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, "", resp.StatusCode,
-			fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateBody(body, 200))
 	}
 
 	return body, resp.Header.Get("Link"), resp.StatusCode, nil

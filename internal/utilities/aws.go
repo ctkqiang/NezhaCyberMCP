@@ -29,13 +29,13 @@ func IsRunInAWS() bool {
 	secretKey := awsEnv("AWS_SECRET_ACCESS_KEY", "")
 
 	if isInvalidAWSCredential(keyID) {
-		err := fmt.Errorf("AWS_ACCESS_KEY_ID 缺失或包含无效占位符值 %q", keyID)
+		err := fmt.Errorf("AWS_ACCESS_KEY_ID 缺失或包含无效占位符值 %q", Mask(keyID))
 		LogError("AWSUtil", "IsRunInAWS", err, 0, "key=AWS_ACCESS_KEY_ID")
 		return false
 	}
 
 	if isInvalidAWSCredential(secretKey) {
-		err := fmt.Errorf("AWS_SECRET_ACCESS_KEY 缺失或包含无效占位符值 %q", secretKey)
+		err := fmt.Errorf("AWS_SECRET_ACCESS_KEY 缺失或包含无效占位符值 %q", Mask(secretKey))
 		LogError("AWSUtil", "IsRunInAWS", err, 0, "key=AWS_SECRET_ACCESS_KEY")
 		return false
 	}

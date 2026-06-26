@@ -617,7 +617,7 @@ func (s *CirclCVEService) doRequest(ctx context.Context, url string) ([]byte, in
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateBody(body, 200))
 	}
 
 	return body, resp.StatusCode, nil

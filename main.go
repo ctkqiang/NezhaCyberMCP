@@ -34,7 +34,7 @@ func main() {
 	defer cancel()
 
 	if err := run(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
+		utilities.Error("fatal: %v", err)
 		os.Exit(1)
 	}
 }
