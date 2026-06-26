@@ -26,12 +26,12 @@
 
 <script setup lang="ts">
 const features = [
-  { key: "realtime", icon: "pi-sync", gradient: "linear-gradient(135deg, #6366f1, #818cf8)" },
-  { key: "search", icon: "pi-search", gradient: "linear-gradient(135deg, #06b6d4, #22d3ee)" },
-  { key: "lambda", icon: "pi-cloud", gradient: "linear-gradient(135deg, #f59e0b, #fbbf24)" },
-  { key: "secure", icon: "pi-lock", gradient: "linear-gradient(135deg, #10b981, #34d399)" },
-  { key: "prompts", icon: "pi-comment", gradient: "linear-gradient(135deg, #8b5cf6, #a78bfa)" },
-  { key: "db", icon: "pi-database", gradient: "linear-gradient(135deg, #ef4444, #f87171)" },
+  { key: "realtime", icon: "pi-sync",     gradient: "linear-gradient(135deg, #e53e3e, #c53030)" },
+  { key: "search",   icon: "pi-search",   gradient: "linear-gradient(135deg, #f6ad55, #c05621)" },
+  { key: "lambda",   icon: "pi-cloud",    gradient: "linear-gradient(135deg, #fc8181, #e53e3e)" },
+  { key: "secure",   icon: "pi-lock",     gradient: "linear-gradient(135deg, #9b2c2c, #742a2a)" },
+  { key: "prompts",  icon: "pi-comment",  gradient: "linear-gradient(135deg, #e53e3e, #f6ad55)" },
+  { key: "db",       icon: "pi-database", gradient: "linear-gradient(135deg, #c53030, #9b2c2c)" },
 ];
 </script>
 

@@ -57,7 +57,7 @@ const { isDark, toggle } = useTheme();
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  background: linear-gradient(135deg, #e53e3e, #c53030);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -69,6 +69,6 @@ const { isDark, toggle } = useTheme();
 
 .theme-toggle--light .theme-toggle__thumb {
   transform: translateX(22px);
-  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  background: linear-gradient(135deg, #f6ad55, #c05621);
 }
 </style>

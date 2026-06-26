@@ -98,9 +98,9 @@ const tools = [
 .tool-badge {
   width: 36px;
   height: 36px;
-  border-radius: var(--radius-sm);
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  background: rgba(229, 62, 62, 0.1);
+  border: 1px solid rgba(229, 62, 62, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;

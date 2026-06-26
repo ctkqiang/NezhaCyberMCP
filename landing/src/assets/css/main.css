@@ -1,116 +1,117 @@
 /* ============================================================
    Design tokens — Dark theme (default)
-   Chinese enterprise palette: deep navy base, indigo primary,
-   cyan accent. Conservative, high-contrast, professional.
+   Chinese enterprise red palette:
+   Deep charcoal base, crimson primary, amber accent.
+   Professional, bold, high-contrast.
    ============================================================ */
 :root,
 [data-theme="dark"] {
   /* backgrounds */
-  --color-bg:        #0a0e1a;
-  --color-surface:   #111827;
-  --color-surface-2: #1a2235;
-  --color-surface-3: #222d42;
+  --color-bg:        #0f0a0a;
+  --color-surface:   #1a1010;
+  --color-surface-2: #231515;
+  --color-surface-3: #2e1a1a;
 
   /* borders */
-  --color-border:    rgba(255, 255, 255, 0.08);
-  --color-border-2:  rgba(255, 255, 255, 0.14);
+  --color-border:    rgba(255, 255, 255, 0.07);
+  --color-border-2:  rgba(255, 255, 255, 0.13);
 
-  /* brand */
-  --color-primary:       #4f6ef7;
-  --color-primary-light: #7b93fa;
-  --color-primary-dark:  #3a56e0;
-  --color-accent:        #06b6d4;
+  /* brand — Chinese enterprise red */
+  --color-primary:       #e53e3e;
+  --color-primary-light: #fc8181;
+  --color-primary-dark:  #c53030;
+  --color-accent:        #f6ad55;
 
   /* semantic */
-  --color-danger:  #ef4444;
-  --color-warning: #f59e0b;
-  --color-success: #10b981;
+  --color-danger:  #fc8181;
+  --color-warning: #f6ad55;
+  --color-success: #68d391;
 
   /* text */
-  --color-text:       #e8edf5;
-  --color-text-muted: #8fa3bf;
-  --color-text-dim:   #5a7090;
+  --color-text:       #f7e8e8;
+  --color-text-muted: #b89090;
+  --color-text-dim:   #7a5555;
 
   /* shadows */
-  --shadow-glow: 0 0 40px rgba(79, 110, 247, 0.18);
-  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.45);
-  --shadow-nav:  0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-glow: 0 0 40px rgba(229, 62, 62, 0.2);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --shadow-nav:  0 1px 0 rgba(255, 255, 255, 0.05);
 
   /* nav */
-  --nav-bg-scrolled: rgba(10, 14, 26, 0.88);
+  --nav-bg-scrolled: rgba(15, 10, 10, 0.9);
 
   /* terminal */
-  --terminal-bg:     #0d1117;
-  --terminal-bar:    #161b22;
-  --terminal-border: rgba(255, 255, 255, 0.1);
-  --terminal-text:   #e6edf3;
-  --terminal-dim:    #6e7681;
+  --terminal-bg:     #0d0808;
+  --terminal-bar:    #160e0e;
+  --terminal-border: rgba(229, 62, 62, 0.15);
+  --terminal-text:   #f7e8e8;
+  --terminal-dim:    #7a5555;
 
   /* code block */
-  --code-bg:     #0d1117;
-  --code-bar:    #161b22;
-  --code-border: rgba(255, 255, 255, 0.08);
-  --code-text:   #e6edf3;
-  --code-dim:    #6e7681;
+  --code-bg:     #0d0808;
+  --code-bar:    #160e0e;
+  --code-border: rgba(229, 62, 62, 0.12);
+  --code-text:   #f7e8e8;
+  --code-dim:    #7a5555;
 }
 
 /* ============================================================
    Light theme — Chinese enterprise light mode
-   Clean white base, slate text, indigo primary.
-   Contrast ratios all >= 4.5:1 (WCAG AA).
+   Clean warm white, deep charcoal text, crimson primary.
+   All contrast ratios >= 4.5:1 (WCAG AA).
    ============================================================ */
 [data-theme="light"] {
   /* backgrounds */
-  --color-bg:        #f0f4f8;
+  --color-bg:        #fdf5f5;
   --color-surface:   #ffffff;
-  --color-surface-2: #f5f7fa;
-  --color-surface-3: #eaeff5;
+  --color-surface-2: #fff0f0;
+  --color-surface-3: #ffe4e4;
 
   /* borders */
-  --color-border:    rgba(0, 0, 0, 0.09);
-  --color-border-2:  rgba(0, 0, 0, 0.15);
+  --color-border:    rgba(197, 48, 48, 0.1);
+  --color-border-2:  rgba(197, 48, 48, 0.18);
 
   /* brand */
-  --color-primary:       #3a56e0;
-  --color-primary-light: #4f6ef7;
-  --color-primary-dark:  #2a42c8;
-  --color-accent:        #0891b2;
+  --color-primary:       #c53030;
+  --color-primary-light: #e53e3e;
+  --color-primary-dark:  #9b2c2c;
+  --color-accent:        #c05621;
 
   /* semantic */
-  --color-danger:  #dc2626;
-  --color-warning: #d97706;
-  --color-success: #059669;
+  --color-danger:  #c53030;
+  --color-warning: #c05621;
+  --color-success: #276749;
 
   /* text */
-  --color-text:       #1a2235;
-  --color-text-muted: #4a5e78;
-  --color-text-dim:   #7a90a8;
+  --color-text:       #1a0a0a;
+  --color-text-muted: #5a2d2d;
+  --color-text-dim:   #9b6b6b;
 
   /* shadows */
-  --shadow-glow: 0 0 40px rgba(58, 86, 224, 0.12);
-  --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.08);
-  --shadow-nav:  0 1px 0 rgba(0, 0, 0, 0.08);
+  --shadow-glow: 0 0 40px rgba(197, 48, 48, 0.14);
+  --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.07);
+  --shadow-nav:  0 1px 0 rgba(197, 48, 48, 0.1);
 
   /* nav */
-  --nav-bg-scrolled: rgba(240, 244, 248, 0.92);
+  --nav-bg-scrolled: rgba(253, 245, 245, 0.93);
 
   /* terminal */
-  --terminal-bg:     #f6f8fa;
-  --terminal-bar:    #eaeef2;
-  --terminal-border: rgba(0, 0, 0, 0.1);
-  --terminal-text:   #24292f;
-  --terminal-dim:    #57606a;
+  --terminal-bg:     #fff8f8;
+  --terminal-bar:    #ffe8e8;
+  --terminal-border: rgba(197, 48, 48, 0.12);
+  --terminal-text:   #1a0a0a;
+  --terminal-dim:    #9b6b6b;
 
   /* code block */
-  --code-bg:     #f6f8fa;
-  --code-bar:    #eaeef2;
-  --code-border: rgba(0, 0, 0, 0.08);
-  --code-text:   #24292f;
-  --code-dim:    #57606a;
+  --code-bg:     #fff8f8;
+  --code-bar:    #ffe8e8;
+  --code-border: rgba(197, 48, 48, 0.1);
+  --code-text:   #1a0a0a;
+  --code-dim:    #9b6b6b;
 }
 
 /* ============================================================
-   Theme transition — smooth 200ms on all color properties
+   Theme transition — smooth 200ms
    ============================================================ */
 *,
 *::before,
@@ -125,13 +126,7 @@
     box-shadow 0.2s ease;
 }
 
-/* Disable transition on elements where it causes layout jank */
-img,
-svg,
-video,
-canvas {
-  transition: none;
-}
+img, svg, video, canvas { transition: none; }
 
 html {
   scroll-behavior: smooth;
@@ -148,18 +143,11 @@ body {
   overflow-x: hidden;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-img {
-  max-width: 100%;
-  display: block;
-}
+a { color: inherit; text-decoration: none; }
+img { max-width: 100%; display: block; }
 
 /* ============================================================
-   Layout utilities
+   Layout
    ============================================================ */
 .container {
   width: 100%;
@@ -168,16 +156,11 @@ img {
   padding: 0 24px;
 }
 
-.section {
-  padding: 96px 0;
-}
-
-.section-sm {
-  padding: 64px 0;
-}
+.section    { padding: 96px 0; }
+.section-sm { padding: 64px 0; }
 
 /* ============================================================
-   Typography utilities
+   Typography
    ============================================================ */
 .gradient-text {
   background: linear-gradient(135deg, var(--color-primary-light) 0%, var(--color-accent) 100%);
@@ -186,11 +169,11 @@ img {
   background-clip: text;
 }
 
-.text-center  { text-align: center; }
-.text-muted   { color: var(--color-text-muted); }
+.text-center { text-align: center; }
+.text-muted  { color: var(--color-text-muted); }
 
 /* ============================================================
-   Component: Badge
+   Badge
    ============================================================ */
 .badge {
   display: inline-flex;
@@ -202,40 +185,36 @@ img {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  border: 1px solid rgba(79, 110, 247, 0.28);
-  background: rgba(79, 110, 247, 0.08);
+  border: 1px solid rgba(229, 62, 62, 0.3);
+  background: rgba(229, 62, 62, 0.1);
   color: var(--color-primary-light);
 }
 
 [data-theme="light"] .badge {
-  border-color: rgba(58, 86, 224, 0.22);
-  background: rgba(58, 86, 224, 0.07);
+  border-color: rgba(197, 48, 48, 0.25);
+  background: rgba(197, 48, 48, 0.07);
   color: var(--color-primary-dark);
 }
 
 /* ============================================================
-   Component: Card
+   Card
    ============================================================ */
 .card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 16px;
   padding: 32px;
-  transition:
-    border-color 0.2s,
-    transform 0.2s,
-    box-shadow 0.2s,
-    background-color 0.2s;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s, background-color 0.2s;
 }
 
 .card:hover {
-  border-color: rgba(79, 110, 247, 0.3);
+  border-color: rgba(229, 62, 62, 0.35);
   transform: translateY(-2px);
   box-shadow: var(--shadow-glow);
 }
 
 /* ============================================================
-   Component: Buttons
+   Buttons
    ============================================================ */
 .btn-primary {
   display: inline-flex;
@@ -249,14 +228,14 @@ img {
   color: #fff;
   border: none;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(79, 110, 247, 0.32);
+  box-shadow: 0 4px 14px rgba(229, 62, 62, 0.35);
   transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
 }
 
 .btn-primary:hover {
   opacity: 0.9;
   transform: translateY(-1px);
-  box-shadow: 0 8px 22px rgba(79, 110, 247, 0.42);
+  box-shadow: 0 8px 22px rgba(229, 62, 62, 0.45);
 }
 
 .btn-secondary {
@@ -275,20 +254,20 @@ img {
 }
 
 .btn-secondary:hover {
-  border-color: rgba(79, 110, 247, 0.4);
-  background: rgba(79, 110, 247, 0.06);
+  border-color: rgba(229, 62, 62, 0.45);
+  background: rgba(229, 62, 62, 0.07);
   transform: translateY(-1px);
 }
 
 /* ============================================================
-   Layout grids
+   Grids
    ============================================================ */
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
 .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 
 /* ============================================================
-   Divider accent
+   Divider
    ============================================================ */
 .divider {
   width: 56px;
@@ -315,7 +294,7 @@ img {
 .animate-float   { animation: float 4s ease-in-out infinite; }
 
 /* ============================================================
-   Responsive breakpoints
+   Responsive
    ============================================================ */
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
@@ -323,11 +302,11 @@ img {
 }
 
 @media (max-width: 768px) {
-  .section    { padding: 64px 0; }
+  .section   { padding: 64px 0; }
   .grid-2,
   .grid-3,
-  .grid-4     { grid-template-columns: 1fr; }
-  .container  { padding: 0 16px; }
+  .grid-4    { grid-template-columns: 1fr; }
+  .container { padding: 0 16px; }
 }
 
 @media (max-width: 480px) {

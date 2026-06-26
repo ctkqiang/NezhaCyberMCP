@@ -1,0 +1,97 @@
+{
+  "nav": {
+    "features": "功能特性",
+    "sources": "数据来源",
+    "tools": "MCP 工具",
+    "github": "GitHub"
+  },
+  "hero": {
+    "badge": "模型上下文协议服务器",
+    "title": "AI 驱动的 CVE 漏洞情报",
+    "subtitle": "NezhaCyberMCP",
+    "description": "将你的 AI 助手连接到来自 CIRCL、GitHub Advisory 和 MyCERT 的实时漏洞数据。通过自然语言查询 CVE、分析威胁、生成安全报告。",
+    "cta_primary": "快速开始",
+    "cta_secondary": "查看 GitHub",
+    "stats": {
+      "cves": "已索引 CVE",
+      "advisories": "GitHub 安全公告",
+      "mycert": "MyCERT 公告",
+      "tools": "MCP 工具"
+    }
+  },
+  "features": {
+    "title": "为 AI 推理漏洞提供一切所需",
+    "subtitle": "专为网络安全情报打造的完整 MCP 服务器",
+    "items": {
+      "realtime": {
+        "title": "实时同步",
+        "desc": "通过定时任务自动从 CIRCL、GitHub Advisory 数据库和 MyCERT 同步 CVE 数据。"
+      },
+      "search": {
+        "title": "语义搜索",
+        "desc": "同时跨三个数据源搜索，支持关键词、严重程度、厂商、产品或 CWE ID 过滤。"
+      },
+      "lambda": {
+        "title": "AWS Lambda 就绪",
+        "desc": "自动检测运行环境。本地作为长驻 MCP 服务器运行，在 AWS 上作为 Lambda 函数运行。"
+      },
+      "secure": {
+        "title": "凭据安全",
+        "desc": "所有敏感值在日志中均被脱敏处理。AWS 凭据、数据库密码和 API 密钥不会出现在输出中。"
+      },
+      "prompts": {
+        "title": "内置提示词",
+        "desc": "预置安全公告起草、补丁优先级排序、利益相关者分诊和每周报告等提示词模板。"
+      },
+      "db": {
+        "title": "多数据库支持",
+        "desc": "通过 GORM 支持 PostgreSQL、MySQL、SQL Server、Oracle、QuestDB 和 Amazon Aurora DSQL。"
+      }
+    }
+  },
+  "sources": {
+    "title": "三大权威数据来源",
+    "subtitle": "聚合、去重、始终保持最新",
+    "circl": {
+      "name": "CIRCL CVE",
+      "desc": "卢森堡计算机事件响应中心——权威 CVE 数据源，包含完整 CVSS 评分和受影响软件包数据。"
+    },
+    "github": {
+      "name": "GitHub Advisory",
+      "desc": "GitHub 精心维护的安全公告数据库，覆盖 npm、PyPI、Maven、Go、Rust 等多个生态系统。"
+    },
+    "mycert": {
+      "name": "MyCERT",
+      "desc": "马来西亚计算机应急响应小组——涵盖东南亚地区相关威胁的区域安全公告。"
+    }
+  },
+  "tools": {
+    "title": "MCP 工具",
+    "subtitle": "让你的 AI 助手直接调用这些工具",
+    "items": {
+      "get_cve": "跨三个数据源按 ID 查询特定 CVE",
+      "search_cves": "支持严重程度、厂商、产品、CWE 和日期范围过滤的全文搜索",
+      "whats_new": "获取指定日期后发布的最新 CVE",
+      "filter_severity": "按 CRITICAL / HIGH / MEDIUM / LOW 严重程度过滤 CVE",
+      "bulk_get": "单次调用批量获取多个 CVE",
+      "vuln_trends": "按严重程度分析漏洞随时间的趋势",
+      "search_by_cpe": "通过 CPE（通用平台枚举）字符串搜索 CVE",
+      "related_cves": "通过共享 CWE 或受影响软件包查找相关 CVE"
+    }
+  },
+  "cta": {
+    "title": "准备好赋予你的 AI 超能力了吗？",
+    "desc": "将 NezhaCyberMCP 添加到你的 Claude、Cursor 或任何兼容 MCP 的 AI 助手。无需配置数据库——CVE 数据直接由我们的基础设施提供。",
+    "button": "查看配置指南",
+    "config_title": "添加到你的 MCP 配置——就这么简单"
+  },
+  "footer": {
+    "tagline": "Go 构建 · MCP 驱动 · 开源",
+    "links": {
+      "github": "GitHub",
+      "issues": "问题反馈",
+      "license": "MIT 许可证"
+    },
+    "copyright": "© 2025 ctkqiang. 保留所有权利。"
+  }
+}

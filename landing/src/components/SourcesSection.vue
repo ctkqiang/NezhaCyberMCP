@@ -40,7 +40,7 @@ const sources = [
   {
     key: "circl",
     icon: "pi-shield",
-    gradient: "linear-gradient(135deg, #6366f1, #4f46e5)",
+    gradient: "linear-gradient(135deg, #e53e3e, #c53030)",
     tag: "cve.circl.lu",
     stats: [
       { value: "200K+", label: "CVE Records" },
@@ -51,7 +51,7 @@ const sources = [
   {
     key: "github",
     icon: "pi-github",
-    gradient: "linear-gradient(135deg, #1f2937, #374151)",
+    gradient: "linear-gradient(135deg, #742a2a, #9b2c2c)",
     tag: "api.github.com",
     stats: [
       { value: "9.4K+", label: "Advisories" },
@@ -62,7 +62,7 @@ const sources = [
   {
     key: "mycert",
     icon: "pi-flag",
-    gradient: "linear-gradient(135deg, #dc2626, #b91c1c)",
+    gradient: "linear-gradient(135deg, #f6ad55, #c05621)",
     tag: "mycert.org.my",
     stats: [
       { value: "790+", label: "Bulletins" },

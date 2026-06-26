@@ -126,7 +126,7 @@ const stats = [
 .hero__orb--1 {
   width: 600px;
   height: 600px;
-  background: var(--color-primary);
+  background: radial-gradient(circle, #e53e3e 0%, #9b2c2c 100%);
   top: -200px;
   right: -100px;
 }
@@ -134,7 +134,7 @@ const stats = [
 .hero__orb--2 {
   width: 400px;
   height: 400px;
-  background: var(--color-accent);
+  background: radial-gradient(circle, #f6ad55 0%, #c05621 100%);
   bottom: -100px;
   left: -100px;
 }
