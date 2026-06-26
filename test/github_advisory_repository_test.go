@@ -2,7 +2,6 @@ package test
 
 import (
 	"context"
-	"encoding/json"
 	"nezha_cyber_mcp/internal/model"
 	"nezha_cyber_mcp/internal/repository"
 	"testing"
@@ -53,8 +52,8 @@ func sampleAdvisory(ghsaID string) model.GithubAdvisory {
 		PublishedAt:     &now,
 		UpdatedAt:       &now,
 		WithdrawnAt:     nil,
-		Vulnerabilities: json.RawMessage(`[{"package":{"name":"test-pkg","ecosystem":"npm"}}]`),
-		References:      json.RawMessage(`[{"url":"https://example.com/advisory"}]`),
+		Vulnerabilities: `[{"package":{"name":"test-pkg","ecosystem":"npm"}}]`,
+		References:      `[{"url":"https://example.com/advisory"}]`,
 	}
 }
 

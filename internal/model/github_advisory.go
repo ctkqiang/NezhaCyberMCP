@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"time"
 )
 
@@ -34,6 +33,6 @@ type GithubAdvisory struct {
 	PublishedAt     *time.Time      `json:"published_at"    gorm:"column:published_at"`
 	UpdatedAt       *time.Time      `json:"updated_at"      gorm:"column:updated_at"`
 	WithdrawnAt     *time.Time      `json:"withdrawn_at"    gorm:"column:withdrawn_at"`
-	Vulnerabilities json.RawMessage `json:"vulnerabilities" gorm:"column:vulnerabilities;type:text"` // JSON 数组，存储受影响软件包
-	References      json.RawMessage `json:"references"      gorm:"column:references;type:text"`      // JSON 数组，存储参考链接
+	Vulnerabilities string `json:"vulnerabilities" gorm:"column:vulnerabilities;type:text"`
+	References      string `json:"references"      gorm:"column:references;type:text"`
 }

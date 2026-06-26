@@ -175,8 +175,6 @@ type MatchInventoryParams struct {
 	Limit int `json:"limit,omitempty"`
 }
 
-// ---- 输出结构体 ----
-
 // CVERecord 是工具返回的标准化 CVE 记录，字段类型明确，供 LLM 直接使用。
 type CVERecord struct {
 	CVEID         string          `json:"cve_id"`
@@ -217,8 +215,6 @@ type InventoryMatch struct {
 	Total   int         `json:"total"`
 }
 
-// ---- Actions 结构体 ----
-
 // Actions 封装了所有 MCP 工具的数据库查询逻辑。
 // 通过 *gorm.DB 与数据库交互，所有方法均支持 context 传递。
 type Actions struct {
@@ -245,8 +241,6 @@ func (a *Actions) SetDB(db *gorm.DB) {
 	a.db = db
 }
 
-// ---- 辅助函数 ----
-
 // toRecord 将 model.CirclCVE 转换为标准化的 CVERecord 输出结构。
 func toRecord(c model.CirclCVE) CVERecord {
 	var cweIDs []string
@@ -269,6 +263,28 @@ func toRecord(c model.CirclCVE) CVERecord {
 		References:    c.ReferencesJSON,
 		DatePublished: c.DatePublished,
 		DateUpdated:   c.DateUpdated,
+	}
+}
+
+// githubAdvisoryToRecord 将 model.GithubAdvisory 转换为标准化的 CVERecord 输出结构。
+// 用于 get_cve 在 circl_cves 未命中时的回退查询。
+func githubAdvisoryToRecord(g model.GithubAdvisory) CVERecord {
+	cveID := ""
+	if g.CVEID != nil {
+		cveID = *g.CVEID
+	}
+	return CVERecord{
+		CVEID:         cveID,
+		State:         g.Type,
+		AssignerShort: "github",
+		Title:         g.Summary,
+		Description:   g.Description,
+		Severity:      g.Severity,
+		CWEIDs:        []string{},
+		Affected:      json.RawMessage(g.Vulnerabilities),
+		References:    json.RawMessage(g.References),
+		DatePublished: g.PublishedAt,
+		DateUpdated:   g.UpdatedAt,
 	}
 }
 
@@ -309,8 +325,6 @@ func severityOrder(minSeverity string) []string {
 	return order
 }
 
-// ---- [ready] 工具实现 ----
-
 // GetCVE 按 CVE ID 查询单条完整漏洞记录。
 // 对应 MCP 工具：get_cve
 //
@@ -329,21 +343,43 @@ func (a *Actions) GetCVE(ctx context.Context, params GetCVEParams) (*CVERecord, 
 		return nil, fmt.Errorf("参数 id 不能为空")
 	}
 
+	cveID := strings.ToUpper(strings.TrimSpace(params.ID))
+
+	// 优先查询 circl_cves（字段最完整）。
 	var cve model.CirclCVE
 	result := a.db.WithContext(ctx).
-		Where("cve_id = ?", strings.ToUpper(strings.TrimSpace(params.ID))).
+		Where("cve_id = ?", cveID).
 		First(&cve)
 
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("CVE %q 不存在", params.ID)
-		}
+	if result.Error == nil {
+		rec := toRecord(cve)
+		utilities.LogSuccess(actionsComponent, "GetCVE", time.Since(start),
+			"cve_id="+cveID, "source=circl_cves")
+		return &rec, nil
+	}
+
+	if result.Error != gorm.ErrRecordNotFound {
 		utilities.LogError(actionsComponent, "GetCVE", result.Error, time.Since(start))
 		return nil, fmt.Errorf("查询 CVE 失败: %w", result.Error)
 	}
 
-	rec := toRecord(cve)
-	utilities.LogSuccess(actionsComponent, "GetCVE", time.Since(start), "cve_id="+params.ID)
+	// circl_cves 未命中，回退到 github_advisories。
+	var gh model.GithubAdvisory
+	ghResult := a.db.WithContext(ctx).
+		Where("cve_id = ?", cveID).
+		First(&gh)
+
+	if ghResult.Error != nil {
+		if ghResult.Error == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("CVE %q 不存在", cveID)
+		}
+		utilities.LogError(actionsComponent, "GetCVE", ghResult.Error, time.Since(start))
+		return nil, fmt.Errorf("查询 CVE 失败: %w", ghResult.Error)
+	}
+
+	rec := githubAdvisoryToRecord(gh)
+	utilities.LogSuccess(actionsComponent, "GetCVE", time.Since(start),
+		"cve_id="+cveID, "source=github_advisories")
 	return &rec, nil
 }
 
@@ -1159,8 +1195,6 @@ func (a *Actions) MatchInventory(ctx context.Context, params MatchInventoryParam
 		fmt.Sprintf("targets=%d matched_packages=%d", len(targets), len(results)))
 	return results, nil
 }
-
-// ---- [needs data] 工具存根 ----
 
 // ErrNotImplemented 是 [needs data] 工具返回的标准错误，说明该功能需要额外数据源。
 type ErrNotImplemented struct {

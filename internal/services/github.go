@@ -374,7 +374,7 @@ func parseAPIAdvisory(raw json.RawMessage) (*model.GithubAdvisory, error) {
 		PublishedAt:     a.PublishedAt,
 		UpdatedAt:       a.UpdatedAt,
 		WithdrawnAt:     a.WithdrawnAt,
-		Vulnerabilities: a.Vulnerabilities,
-		References:      a.References,
+		Vulnerabilities: string(a.Vulnerabilities),
+		References:      string(a.References),
 	}, nil
 }
