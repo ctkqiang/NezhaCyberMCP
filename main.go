@@ -33,7 +33,9 @@ func main() {
 
 	// 根据运行时环境选择执行模式：
 	//   - 本地模式：启动 cron 调度器 + MCP stdio 服务器（长驻进程）
-	//   - AWS Lambda 模式：注册 Lambda 处理函数，由 Lambda 运行时驱动单次执行
+	//   - AWS Lambda MCP 模式（MCP_HTTP_MODE=true）：启动 SSE HTTP 服务器，
+	//     由 Lambda Function URL 代理，对外暴露 /sse 端点
+	//   - AWS Lambda 同步模式（默认）：注册 Lambda 处理函数，执行一次数据同步后退出
 	if utilities.IsLocalMode() {
 		utilities.LogProgress("Main", "Startup", "运行模式=local，启动 cron+MCP stdio 服务器")
 
@@ -41,6 +43,23 @@ func main() {
 		defer cancel()
 
 		if err := run(ctx); err != nil {
+			utilities.Error("fatal: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if getEnv("MCP_HTTP_MODE", "false") == "true" {
+		utilities.LogProgress("Main", "Startup", "运行模式=lambda-mcp-http，启动 SSE HTTP 服务器")
+
+		// Lambda 通过 SIGTERM 通知函数关闭，同时也响应 SIGINT（本地测试用）。
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+
+		// Lambda Function URL 通过 AWS_LAMBDA_RUNTIME_API 驱动，
+		// 但 MCP_HTTP_MODE=true 时我们绕过 Lambda 运行时，直接监听 PORT。
+		// Lambda 会将 Function URL 请求代理到 localhost:PORT。
+		if err := runMCPHTTP(ctx); err != nil {
 			utilities.Error("fatal: %v", err)
 			os.Exit(1)
 		}
@@ -169,6 +188,52 @@ func run(ctx context.Context) error {
 	return nil
 }
 
+// runMCPHTTP 在 AWS Lambda Function URL 模式下以 SSE HTTP 传输启动 MCP 服务器。
+// 与 run() 的区别：
+//   - 不启动 cron 调度器（数据由独立的同步 Lambda 写入）
+//   - 以 HTTP/SSE 模式运行，监听 PORT 环境变量指定的端口（默认 8080）
+//   - Lambda Function URL 将 HTTPS 请求代理到此 HTTP 服务器
+//
+// 参数：
+//   - ctx : 根上下文，携带信号取消能力
+//
+// 返回：
+//   - error : 初始化或服务器运行失败时返回错误
+func runMCPHTTP(ctx context.Context) error {
+	utilities.LogProgress("Main", "runMCPHTTP", "正在初始化 MCP HTTP 服务器...")
+
+	dbEnv, err := utilities.ResolveDBEnvironment()
+	if err != nil {
+		utilities.LogError("Main", "runMCPHTTP", err, 0, "step=ResolveDBEnvironment")
+		return fmt.Errorf("数据库环境解析失败: %w", err)
+	}
+
+	dbCfg := buildDBConfig(dbEnv)
+
+	db, err := services.InitDatabase(ctx, dbCfg)
+	if err != nil {
+		utilities.LogWarn("Main", "runMCPHTTP",
+			fmt.Sprintf("数据库连接失败，工具调用将返回错误: %v", err),
+			0, "step=InitDatabase",
+		)
+	}
+
+	mcpServer := services.NewMCPServer(nil)
+	if db != nil {
+		mcpServer.SetDB(db.DB())
+		defer func() {
+			if closeErr := db.Close(); closeErr != nil {
+				utilities.Warn("关闭数据库连接失败: %v", closeErr)
+			}
+		}()
+	}
+
+	port := getEnv("PORT", "8080")
+	addr := ":" + port
+
+	return mcpServer.RunHTTP(ctx, addr)
+}
+
 // LambdaEvent 是 Lambda 函数接收的触发事件结构。
 // 支持 EventBridge 定时触发（source="aws.events"）和手动调用（source=""）。
 // 其余字段由 Lambda 运行时填充，业务逻辑无需关心。
@@ -233,6 +298,19 @@ func lambdaHandler(ctx context.Context, event LambdaEvent) (LambdaResponse, erro
 func runLambda(ctx context.Context) error {
 	utilities.LogProgress("Main", "runLambda", "正在初始化 Lambda 执行环境...")
 
+	// 为整个同步流程设置硬性截止时间：Lambda 函数超时前 10 秒主动退出，
+	// 确保有足够时间写入最后一批数据并返回响应。
+	// LAMBDA_TIMEOUT_SECONDS 默认 300（5 分钟），可通过环境变量覆盖。
+	timeoutSec := 300
+	if v := getEnv("LAMBDA_TIMEOUT_SECONDS", ""); v != "" {
+		if n, err := fmt.Sscanf(v, "%d", &timeoutSec); n != 1 || err != nil {
+			timeoutSec = 300
+		}
+	}
+	deadline := time.Duration(timeoutSec-10) * time.Second
+	ctx, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+
 	dbEnv, err := utilities.ResolveDBEnvironment()
 	if err != nil {
 		utilities.LogError("Main", "runLambda", err, 0, "step=ResolveDBEnvironment")
@@ -241,28 +319,33 @@ func runLambda(ctx context.Context) error {
 
 	dbCfg := buildDBConfig(dbEnv)
 
+	timezone := getEnv("DB_TIMEZONE", "Asia/Shanghai")
+
+	// Lambda 环境下收紧各项超时参数：
+	//   - 单次 HTTP 请求超时 10s（原 30s）
+	//   - 重试次数降为 2（原 5），避免单个失败请求消耗过多时间
+	//   - 重试退避降为 1s（原 2s）
+	//   - MaxPages=5 限制每次同步页数，防止单次调用超时
 	scraperCfg := &services.AdvisoryScraperConfig{
-		MaxPages:       0,
-		RequestTimeout: 30 * time.Second,
+		MaxPages:       5,
+		RequestTimeout: 10 * time.Second,
 		PerPage:        100,
-		RetryMax:       5,
-		RetryBackoff:   2 * time.Second,
+		RetryMax:       2,
+		RetryBackoff:   1 * time.Second,
 		Token:          getEnv("GITHUB_TOKEN", ""),
 	}
 
-	timezone := getEnv("DB_TIMEZONE", "Asia/Shanghai")
-
 	mycertCfg := &services.MycertScraperConfig{
-		MaxPages:       0,
-		RequestTimeout: 30 * time.Second,
-		FetchDetail:    true,
+		MaxPages:       5,
+		RequestTimeout: 10 * time.Second,
+		FetchDetail:    false,
 	}
 
 	circlCfg := &services.CirclScraperConfig{
-		RequestTimeout: 30 * time.Second,
-		RetryMax:       5,
-		RetryBackoff:   2 * time.Second,
-		RateLimit:      500 * time.Millisecond,
+		RequestTimeout: 10 * time.Second,
+		RetryMax:       2,
+		RetryBackoff:   1 * time.Second,
+		RateLimit:      200 * time.Millisecond,
 	}
 
 	advisoryJob, err := job.NewAdvisoryJob(

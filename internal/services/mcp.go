@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"nezha_cyber_mcp/internal/functions"
 	"nezha_cyber_mcp/internal/utilities"
 	"strings"
@@ -58,6 +59,50 @@ func (s *MCPServer) Server() *mcp.Server {
 //   - db : 已初始化的 GORM 数据库连接
 func (s *MCPServer) SetDB(db *gorm.DB) {
 	s.actions.SetDB(db)
+}
+
+// RunHTTP 以 SSE HTTP 传输模式启动 MCP 服务器，监听指定地址。
+// 适用于 AWS Lambda Function URL 或 API Gateway 场景。
+// SSE 端点挂载在 /sse，POST 消息端点由 SDK 自动管理。
+//
+// 参数：
+//   - ctx  : 根上下文，取消时服务器停止
+//   - addr : 监听地址，如 ":8080"
+//
+// 返回：
+//   - error : 服务器启动或运行失败时返回错误
+func (s *MCPServer) RunHTTP(ctx context.Context, addr string) error {
+	utilities.LogStart(mcpComponent, "RunHTTP")
+
+	handler := mcp.NewSSEHandler(
+		func(_ *http.Request) *mcp.Server { return s.server },
+		nil,
+	)
+
+	mux := http.NewServeMux()
+	mux.Handle("/sse", handler)
+	mux.Handle("/", handler)
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	go func() {
+		<-ctx.Done()
+		_ = srv.Shutdown(context.Background())
+	}()
+
+	utilities.LogProgress(mcpComponent, "RunHTTP",
+		"MCP SSE 服务器已就绪",
+		"addr="+addr,
+		"endpoint=/sse",
+	)
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("MCP HTTP 服务器异常退出: %w", err)
+	}
+	return nil
 }
 
 func (s *MCPServer) registerTools() {
