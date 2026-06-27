@@ -721,6 +721,6 @@ SOFTWARE.
 
 <div align="center">
 
-基于 Go 构建 · 由 MCP 驱动 · 安全设计
+基于 Go 构建 · 由 MCP 驱动 · 安全设计 · ctkqiang
 
 </div>

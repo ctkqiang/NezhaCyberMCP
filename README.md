@@ -721,6 +721,6 @@ SOFTWARE.
 
 <div align="center">
 
-Built with Go · Powered by MCP · Secured by design
+Built with Go · Powered by MCP · Secured by design · ctkqiang
 
 </div>
