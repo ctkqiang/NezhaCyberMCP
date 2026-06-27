@@ -28,7 +28,7 @@ const circlSingleCVEJSON = `{
     "cveId": "CVE-2021-44228",
     "assignerOrgId": "f0158376-9dc2-43b6-827c-5f631a4d8d09",
     "assignerShortName": "apache",
-    "dateUpdated": "2025-10-21T23:25:23.121Z",
+    "dateUpdated": "2026-10-21T23:25:23.121Z",
     "dateReserved": "2021-11-26T00:00:00.000Z",
     "datePublished": "2021-12-10T00:00:00.000Z"
   },
