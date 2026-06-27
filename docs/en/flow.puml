@@ -1,0 +1,147 @@
+@startuml NezhaCyberMCP_Architecture
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName "DejaVu Sans"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam componentStyle rectangle
+
+skinparam component {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+    FontColor #1A252F
+}
+
+skinparam database {
+    BackgroundColor #EAF7EA
+    BorderColor #27AE60
+    FontColor #1A252F
+}
+
+skinparam cloud {
+    BackgroundColor #FEF9E7
+    BorderColor #F39C12
+    FontColor #1A252F
+}
+
+skinparam rectangle {
+    BackgroundColor #F9EBEA
+    BorderColor #E74C3C
+    FontColor #1A252F
+}
+
+title NezhaCyberMCP - System Architecture Overview
+
+' ============================================================
+' External Data Sources
+' ============================================================
+package "External Data Sources" {
+    cloud "CIRCL CVE Search API\nhttps://vulnerability.circl.lu" as CIRCL
+    cloud "GitHub Advisory Database\nhttps://api.github.com/advisories" as GITHUB
+    cloud "MyCERT Advisory Portal\nhttps://www.mycert.org.my" as MYCERT
+}
+
+' ============================================================
+' Data Ingestion Layer
+' ============================================================
+package "Data Ingestion Layer (internal/services)" {
+    component "CirclService\ncircl.go" as CirclSvc
+    component "GithubAdvisoryService\ngithub.go" as GithubSvc
+    component "MycertAdvisoryService\nmycert.go" as MycertSvc
+}
+
+' ============================================================
+' Scheduling Layer
+' ============================================================
+package "Scheduling Layer (internal/job)" {
+    component "AdvisoryJob\nadvisory_job.go\n[cron/v3 scheduler]" as Job
+}
+
+' ============================================================
+' Persistence Layer
+' ============================================================
+package "Persistence Layer (internal/repository)" {
+    component "CirclCVERepository\ncircl_cve_repository.go" as CirclRepo
+    component "GithubAdvisoryRepository\ngithub_advisory_repository.go" as GithubRepo
+    component "MycertAdvisoryRepository\nmycert_advisory_repository.go" as MycertRepo
+}
+
+' ============================================================
+' Database
+' ============================================================
+package "Database (GORM ORM)" {
+    database "circl_cves\ntable" as CirclDB
+    database "github_advisories\ntable" as GithubDB
+    database "mycert_advisories\ntable" as MycertDB
+}
+
+database "PostgreSQL / MySQL\nSQLite / Aurora DSQL" as MainDB
+
+' ============================================================
+' MCP Protocol Layer
+' ============================================================
+package "MCP Protocol Layer (internal/services/mcp.go)" {
+    component "MCPServer\n[go-sdk/mcp]" as MCPServer
+    component "Actions\n(internal/functions/actions.go)\n18 registered tools" as Actions
+}
+
+' ============================================================
+' Transport Layer
+' ============================================================
+package "Transport Layer" {
+    component "stdio Transport\n(local / Claude Desktop)" as StdioTransport
+    component "SSE HTTP Transport\n(AWS Lambda Function URL)\nPORT=8080  /sse" as SSETransport
+}
+
+' ============================================================
+' Runtime Environments
+' ============================================================
+package "Runtime Environments" {
+    rectangle "Local Mode\nIS_LOCAL=true\ncron + stdio MCP" as LocalMode
+    rectangle "AWS Lambda Sync Mode\nEventBridge trigger\none-shot data sync" as LambdaSync
+    rectangle "AWS Lambda MCP Mode\nMCP_HTTP_MODE=true\nSSE HTTP server" as LambdaMCP
+}
+
+' ============================================================
+' AI Client
+' ============================================================
+rectangle "AI Client\n(Claude / Cursor / VS Code)" as AIClient
+
+' ============================================================
+' Connections
+' ============================================================
+CIRCL --> CirclSvc : "HTTP GET /vulnerability/\nJSON pagination"
+GITHUB --> GithubSvc : "REST API\nBearer token auth"
+MYCERT --> MycertSvc : "HTML scraping\nHTTP GET"
+
+CirclSvc --> CirclRepo : "[]CirclCVE"
+GithubSvc --> GithubRepo : "[]GithubAdvisory"
+MycertSvc --> MycertRepo : "[]MycertAdvisory"
+
+CirclRepo --> CirclDB : "GORM Upsert\nCreateInBatches(100)"
+GithubRepo --> GithubDB : "GORM Upsert\nCreateInBatches(100)"
+MycertRepo --> MycertDB : "GORM Upsert\nCreateInBatches(100)"
+
+CirclDB --> MainDB
+GithubDB --> MainDB
+MycertDB --> MainDB
+
+Job --> CirclSvc : "trigger (circlOn=true)"
+Job --> GithubSvc : "trigger (githubOn=true)"
+Job --> MycertSvc : "trigger (mycertOn=true)"
+
+MCPServer --> Actions : "dispatch tool call"
+Actions --> MainDB : "GORM query\nWithContext(ctx)"
+
+MCPServer --> StdioTransport : "local mode"
+MCPServer --> SSETransport : "lambda MCP mode"
+
+StdioTransport --> AIClient : "MCP JSON-RPC 2.0"
+SSETransport --> AIClient : "MCP over SSE/HTTP"
+
+LocalMode --> Job : "goroutine"
+LocalMode --> MCPServer : "stdio"
+LambdaSync --> Job : "RunNow(ctx)"
+LambdaMCP --> MCPServer : "RunHTTP(ctx, addr)"
+
+@enduml

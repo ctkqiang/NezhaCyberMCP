@@ -1,0 +1,172 @@
+@startuml NezhaCyberMCP_Sequence
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName "DejaVu Sans"
+skinparam defaultFontSize 11
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+skinparam participant {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+    FontColor #1A252F
+}
+
+skinparam actor {
+    BackgroundColor #FEF9E7
+    BorderColor #F39C12
+}
+
+skinparam database {
+    BackgroundColor #EAF7EA
+    BorderColor #27AE60
+}
+
+title NezhaCyberMCP - Request & Data Sync Sequence
+
+' ============================================================
+' Participants
+' ============================================================
+actor "AI Client\n(Claude / Cursor)" as Client
+participant "MCPServer\n(mcp.go)" as MCP
+participant "Actions\n(actions.go)" as Actions
+database "Database\n(PostgreSQL / DSQL)" as DB
+participant "AdvisoryJob\n(advisory_job.go)" as Job
+participant "CirclService\n(circl.go)" as Circl
+participant "MycertService\n(mycert.go)" as Mycert
+participant "GithubService\n(github.go)" as Github
+participant "CIRCL API\n(external)" as CirclAPI
+participant "MyCERT Portal\n(external)" as MycertPortal
+participant "GitHub API\n(external)" as GithubAPI
+
+' ============================================================
+' Phase 1: Server Startup (Local Mode)
+' ============================================================
+== Phase 1: Server Startup (Local Mode) ==
+
+[-> MCP : main() IS_LOCAL=true
+activate MCP
+
+MCP -> MCP : NewMCPServer(nil)\nregisterTools()\nregisterResources()\nregisterPrompts()
+note right of MCP
+  Server starts immediately with nil DB.
+  MCP handshake is never blocked by DB I/O.
+  DB is hot-injected after connection is ready.
+end note
+
+MCP -> Job : goroutine: BackgroundInit()
+activate Job
+
+Job -> DB : InitDatabase(ctx, dbCfg)
+activate DB
+DB --> Job : *gorm.DB
+deactivate DB
+
+Job -> MCP : SetDB(db)\nhot-inject DB connection
+note right of MCP
+  From this point, tool calls can\naccess the database.
+end note
+
+Job -> DB : MigrateAll(ctx)\nAutoMigrate circl_cves,\ngithub_advisories,\nmycert_advisories
+DB --> Job : migration OK
+
+Job -> Job : RunNow(ctx)\nimmediate first sync
+
+Job -> Circl : Run(ctx)
+activate Circl
+Circl -> CirclAPI : GET /vulnerability/?page=1&per_page=100
+CirclAPI --> Circl : JSON { data: [...], total: N }
+loop paginate until all pages fetched
+    Circl -> CirclAPI : GET /vulnerability/?page=N
+    CirclAPI --> Circl : JSON page N
+end
+Circl -> DB : BulkUpsert(ctx, []CirclCVE)\nCreateInBatches(100)\nOnConflict{UpdateAll:true}
+DB --> Circl : rows affected
+deactivate Circl
+
+Job -> Mycert : Run(ctx)
+activate Mycert
+Mycert -> MycertPortal : GET /advisories/list
+MycertPortal --> Mycert : HTML page
+Mycert -> Mycert : parse HTML\nextract advisory links
+loop fetch detail pages
+    Mycert -> MycertPortal : GET /advisories/detail?id=X
+    MycertPortal --> Mycert : HTML detail
+end
+Mycert -> DB : BulkUpsert(ctx, []MycertAdvisory)
+DB --> Mycert : rows affected
+deactivate Mycert
+
+Job -> Job : Start(ctx)\nschedule cron\n"0 */3 * * *" (every 3h)
+deactivate Job
+
+MCP -> MCP : Run(ctx)\nStdioTransport\nblocking
+
+' ============================================================
+' Phase 2: AI Client Tool Call - get_cve
+' ============================================================
+== Phase 2: AI Client Tool Call - get_cve ==
+
+Client -> MCP : MCP JSON-RPC 2.0\n{"method":"tools/call","params":{"name":"get_cve","arguments":{"id":"CVE-2021-44228"}}}
+activate MCP
+
+MCP -> Actions : toolGetCVE(ctx, params{ID:"CVE-2021-44228"})
+activate Actions
+
+Actions -> DB : SELECT * FROM circl_cves\nWHERE cve_id = 'CVE-2021-44228'\nWITH CONTEXT(ctx)
+activate DB
+DB --> Actions : CirclCVE{...}
+deactivate DB
+
+Actions --> MCP : *mcp.CallToolResult\n{cve_id, title, severity, description, ...}
+deactivate Actions
+
+MCP --> Client : JSON-RPC response\n{result: {content: [{type:"text", text: "..."}]}}
+deactivate MCP
+
+' ============================================================
+' Phase 3: AI Client Tool Call - search_cves
+' ============================================================
+== Phase 3: AI Client Tool Call - search_cves ==
+
+Client -> MCP : tools/call search_cves\n{keyword:"log4j", severity:"critical", limit:20}
+activate MCP
+
+MCP -> Actions : toolSearchCVEs(ctx, SearchCVEsParams{...})
+activate Actions
+
+Actions -> DB : SELECT * FROM circl_cves\nWHERE (title LIKE '%log4j%'\n  OR description LIKE '%log4j%')\n  AND severity = 'critical'\nORDER BY date_published DESC\nLIMIT 20
+DB --> Actions : []CirclCVE (N records)
+
+Actions --> MCP : {total: N, count: N, results: [...]}
+deactivate Actions
+
+MCP --> Client : JSON-RPC response
+deactivate MCP
+
+' ============================================================
+' Phase 4: Scheduled Cron Sync (every 3 hours)
+' ============================================================
+== Phase 4: Scheduled Cron Sync (every 3 hours) ==
+
+Job -> Circl : cron trigger: syncAll(ctx)
+activate Circl
+Circl -> CirclAPI : paginated fetch
+CirclAPI --> Circl : updated CVE data
+Circl -> DB : BulkUpsert (idempotent)
+deactivate Circl
+
+Job -> Mycert : cron trigger
+activate Mycert
+Mycert -> MycertPortal : scrape advisories
+MycertPortal --> Mycert : HTML
+Mycert -> DB : BulkUpsert
+deactivate Mycert
+
+note over Job, DB
+  All upserts use OnConflict{UpdateAll:true}.
+  Duplicate CVE IDs are updated in-place.
+  No duplicate rows are ever inserted.
+end note
+
+@enduml

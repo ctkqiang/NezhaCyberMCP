@@ -1,0 +1,147 @@
+@startuml NezhaCyberMCP_架构图
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName "WenQuanYi Micro Hei"
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam componentStyle rectangle
+
+skinparam component {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+    FontColor #1A252F
+}
+
+skinparam database {
+    BackgroundColor #EAF7EA
+    BorderColor #27AE60
+    FontColor #1A252F
+}
+
+skinparam cloud {
+    BackgroundColor #FEF9E7
+    BorderColor #F39C12
+    FontColor #1A252F
+}
+
+skinparam rectangle {
+    BackgroundColor #F9EBEA
+    BorderColor #E74C3C
+    FontColor #1A252F
+}
+
+title 哪吒网络安全 MCP - 系统架构总览
+
+' ============================================================
+' 外部数据源
+' ============================================================
+package "外部数据源" {
+    cloud "CIRCL CVE Search API\nhttps://vulnerability.circl.lu" as CIRCL
+    cloud "GitHub Advisory Database\nhttps://api.github.com/advisories" as GITHUB
+    cloud "MyCERT 安全公告门户\nhttps://www.mycert.org.my" as MYCERT
+}
+
+' ============================================================
+' 数据采集层
+' ============================================================
+package "数据采集层 (internal/services)" {
+    component "CirclService\ncircl.go\n[HTTP 分页抓取]" as CirclSvc
+    component "GithubAdvisoryService\ngithub.go\n[REST API + Bearer Token]" as GithubSvc
+    component "MycertAdvisoryService\nmycert.go\n[HTML 解析爬虫]" as MycertSvc
+}
+
+' ============================================================
+' 调度层
+' ============================================================
+package "调度层 (internal/job)" {
+    component "AdvisoryJob\nadvisory_job.go\n[cron/v3 定时调度器]\n每 3 小时触发一次" as Job
+}
+
+' ============================================================
+' 持久化层
+' ============================================================
+package "持久化层 (internal/repository)" {
+    component "CirclCVERepository\ncircl_cve_repository.go" as CirclRepo
+    component "GithubAdvisoryRepository\ngithub_advisory_repository.go" as GithubRepo
+    component "MycertAdvisoryRepository\nmycert_advisory_repository.go" as MycertRepo
+}
+
+' ============================================================
+' 数据库
+' ============================================================
+package "数据库 (GORM ORM)" {
+    database "circl_cves 表\n主键: cve_id" as CirclDB
+    database "github_advisories 表\n主键: ghsa_id" as GithubDB
+    database "mycert_advisories 表\n主键: advisory_id" as MycertDB
+}
+
+database "PostgreSQL / MySQL\nSQLite / Amazon Aurora DSQL" as MainDB
+
+' ============================================================
+' MCP 协议层
+' ============================================================
+package "MCP 协议层 (internal/services/mcp.go)" {
+    component "MCPServer\n[go-sdk/mcp]\n18 个注册工具" as MCPServer
+    component "Actions\n(internal/functions/actions.go)\n工具调用分发与数据库查询" as Actions
+}
+
+' ============================================================
+' 传输层
+' ============================================================
+package "传输层" {
+    component "stdio 传输\n(本地 / Claude Desktop)" as StdioTransport
+    component "SSE HTTP 传输\n(AWS Lambda Function URL)\nPORT=8080  /sse 端点" as SSETransport
+}
+
+' ============================================================
+' 运行时环境
+' ============================================================
+package "运行时环境" {
+    rectangle "本地模式\nIS_LOCAL=true\ncron + stdio MCP" as LocalMode
+    rectangle "AWS Lambda 同步模式\nEventBridge 定时触发\n一次性数据同步" as LambdaSync
+    rectangle "AWS Lambda MCP 模式\nMCP_HTTP_MODE=true\nSSE HTTP 服务器" as LambdaMCP
+}
+
+' ============================================================
+' AI 客户端
+' ============================================================
+rectangle "AI 客户端\n(Claude / Cursor / VS Code)" as AIClient
+
+' ============================================================
+' 连接关系
+' ============================================================
+CIRCL --> CirclSvc : "HTTP GET /vulnerability/\nJSON 分页响应"
+GITHUB --> GithubSvc : "REST API\nBearer Token 认证"
+MYCERT --> MycertSvc : "HTML 爬取\nHTTP GET"
+
+CirclSvc --> CirclRepo : "[]CirclCVE"
+GithubSvc --> GithubRepo : "[]GithubAdvisory"
+MycertSvc --> MycertRepo : "[]MycertAdvisory"
+
+CirclRepo --> CirclDB : "GORM Upsert\nCreateInBatches(100)"
+GithubRepo --> GithubDB : "GORM Upsert\nCreateInBatches(100)"
+MycertRepo --> MycertDB : "GORM Upsert\nCreateInBatches(100)"
+
+CirclDB --> MainDB
+GithubDB --> MainDB
+MycertDB --> MainDB
+
+Job --> CirclSvc : "触发 (circlOn=true)"
+Job --> GithubSvc : "触发 (githubOn=true)"
+Job --> MycertSvc : "触发 (mycertOn=true)"
+
+MCPServer --> Actions : "分发工具调用"
+Actions --> MainDB : "GORM 查询\nWithContext(ctx)"
+
+MCPServer --> StdioTransport : "本地模式"
+MCPServer --> SSETransport : "Lambda MCP 模式"
+
+StdioTransport --> AIClient : "MCP JSON-RPC 2.0"
+SSETransport --> AIClient : "MCP over SSE/HTTP"
+
+LocalMode --> Job : "goroutine 后台运行"
+LocalMode --> MCPServer : "stdio 阻塞运行"
+LambdaSync --> Job : "RunNow(ctx)"
+LambdaMCP --> MCPServer : "RunHTTP(ctx, addr)"
+
+@enduml

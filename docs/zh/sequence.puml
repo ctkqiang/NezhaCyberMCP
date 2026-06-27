@@ -1,0 +1,167 @@
+@startuml NezhaCyberMCP_时序图
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName "WenQuanYi Micro Hei"
+skinparam defaultFontSize 11
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+skinparam participant {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+    FontColor #1A252F
+}
+
+skinparam actor {
+    BackgroundColor #FEF9E7
+    BorderColor #F39C12
+}
+
+skinparam database {
+    BackgroundColor #EAF7EA
+    BorderColor #27AE60
+}
+
+title 哪吒网络安全 MCP - 请求与数据同步时序图
+
+' ============================================================
+' 参与者
+' ============================================================
+actor "AI 客户端\n(Claude / Cursor)" as Client
+participant "MCPServer\n(mcp.go)" as MCP
+participant "Actions\n(actions.go)" as Actions
+database "数据库\n(PostgreSQL / DSQL)" as DB
+participant "AdvisoryJob\n(advisory_job.go)" as Job
+participant "CirclService\n(circl.go)" as Circl
+participant "MycertService\n(mycert.go)" as Mycert
+participant "CIRCL API\n(外部)" as CirclAPI
+participant "MyCERT 门户\n(外部)" as MycertPortal
+
+' ============================================================
+' 阶段一：服务器启动（本地模式）
+' ============================================================
+== 阶段一：服务器启动（本地模式） ==
+
+[-> MCP : main() IS_LOCAL=true
+activate MCP
+
+MCP -> MCP : NewMCPServer(nil)\n注册工具/资源/提示词
+note right of MCP
+  服务器以 nil DB 立即启动。
+  MCP 握手不被任何数据库 I/O 阻塞。
+  DB 就绪后通过 SetDB 热注入。
+end note
+
+MCP -> Job : goroutine: 后台初始化
+activate Job
+
+Job -> DB : InitDatabase(ctx, dbCfg)
+activate DB
+DB --> Job : *gorm.DB
+deactivate DB
+
+Job -> MCP : SetDB(db)\n热注入数据库连接
+
+Job -> DB : MigrateAll(ctx)\n自动迁移三张表
+DB --> Job : 迁移成功
+
+Job -> Job : RunNow(ctx)\n立即执行首次同步
+
+Job -> Circl : Run(ctx)
+activate Circl
+Circl -> CirclAPI : GET /vulnerability/?page=1&per_page=100
+CirclAPI --> Circl : JSON { data: [...], total: N }
+loop 分页抓取直到全部完成
+    Circl -> CirclAPI : GET /vulnerability/?page=N
+    CirclAPI --> Circl : JSON 第 N 页
+end
+Circl -> DB : BulkUpsert(ctx, []CirclCVE)\nCreateInBatches(100)\nOnConflict{UpdateAll:true}
+DB --> Circl : 影响行数
+deactivate Circl
+
+Job -> Mycert : Run(ctx)
+activate Mycert
+Mycert -> MycertPortal : GET /advisories/list
+MycertPortal --> Mycert : HTML 列表页
+Mycert -> Mycert : 解析 HTML\n提取公告链接
+loop 抓取详情页
+    Mycert -> MycertPortal : GET /advisories/detail?id=X
+    MycertPortal --> Mycert : HTML 详情页
+end
+Mycert -> DB : BulkUpsert(ctx, []MycertAdvisory)
+DB --> Mycert : 影响行数
+deactivate Mycert
+
+Job -> Job : Start(ctx)\n注册 cron 表达式\n"0 */3 * * *"（每 3 小时）
+deactivate Job
+
+MCP -> MCP : Run(ctx)\nstdio 传输\n阻塞等待
+
+' ============================================================
+' 阶段二：AI 客户端工具调用 - get_cve
+' ============================================================
+== 阶段二：AI 客户端工具调用 - get_cve ==
+
+Client -> MCP : MCP JSON-RPC 2.0\n{"method":"tools/call","params":{"name":"get_cve","arguments":{"id":"CVE-2021-44228"}}}
+activate MCP
+
+MCP -> Actions : toolGetCVE(ctx, params{ID:"CVE-2021-44228"})
+activate Actions
+
+Actions -> DB : SELECT * FROM circl_cves\nWHERE cve_id = 'CVE-2021-44228'\nWITH CONTEXT(ctx)
+activate DB
+DB --> Actions : CirclCVE{...}
+deactivate DB
+
+Actions --> MCP : *mcp.CallToolResult\n{cve_id, title, severity, description, ...}
+deactivate Actions
+
+MCP --> Client : JSON-RPC 响应\n{result: {content: [{type:"text", text: "..."}]}}
+deactivate MCP
+
+' ============================================================
+' 阶段三：AI 客户端工具调用 - search_cves
+' ============================================================
+== 阶段三：AI 客户端工具调用 - search_cves ==
+
+Client -> MCP : tools/call search_cves\n{keyword:"log4j", severity:"critical", limit:20}
+activate MCP
+
+MCP -> Actions : toolSearchCVEs(ctx, SearchCVEsParams{...})
+activate Actions
+
+Actions -> DB : SELECT * FROM circl_cves\nWHERE (title LIKE '%log4j%'\n  OR description LIKE '%log4j%')\n  AND severity = 'critical'\nORDER BY date_published DESC\nLIMIT 20
+DB --> Actions : []CirclCVE (N 条记录)
+
+Actions --> MCP : {total: N, count: N, results: [...]}
+deactivate Actions
+
+MCP --> Client : JSON-RPC 响应
+deactivate MCP
+
+' ============================================================
+' 阶段四：定时 Cron 同步（每 3 小时）
+' ============================================================
+== 阶段四：定时 Cron 同步（每 3 小时） ==
+
+Job -> Circl : cron 触发: syncAll(ctx)
+activate Circl
+Circl -> CirclAPI : 分页抓取
+CirclAPI --> Circl : 更新后的 CVE 数据
+Circl -> DB : BulkUpsert（幂等操作）
+deactivate Circl
+
+Job -> Mycert : cron 触发
+activate Mycert
+Mycert -> MycertPortal : 爬取公告
+MycertPortal --> Mycert : HTML
+Mycert -> DB : BulkUpsert
+deactivate Mycert
+
+note over Job, DB
+  所有 Upsert 使用 OnConflict{UpdateAll:true}。
+  重复的 CVE ID 会原地更新，不会插入重复行。
+  操作具有完全幂等性，可安全重复执行。
+end note
+
+@enduml
