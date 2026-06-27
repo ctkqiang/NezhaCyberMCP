@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"nezha_cyber_mcp/internal/functions"
 	"nezha_cyber_mcp/internal/utilities"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-lambda-go/lambdaurl"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gorm.io/gorm"
 )
@@ -61,13 +64,18 @@ func (s *MCPServer) SetDB(db *gorm.DB) {
 	s.actions.SetDB(db)
 }
 
-// RunHTTP 以 SSE HTTP 传输模式启动 MCP 服务器，监听指定地址。
-// 适用于 AWS Lambda Function URL 或 API Gateway 场景。
+// RunHTTP 以 SSE HTTP 传输模式启动 MCP 服务器。
+//
+// 运行模式自动检测：
+//   - AWS Lambda 环境（AWS_LAMBDA_RUNTIME_API 存在）：使用 lambdaurl.Wrap 将
+//     标准 http.Handler 适配为 Lambda Function URL 处理函数，由 Lambda 运行时驱动。
+//   - 本地环境：启动标准 net/http 服务器，监听 addr 指定的地址。
+//
 // SSE 端点挂载在 /sse，POST 消息端点由 SDK 自动管理。
 //
 // 参数：
 //   - ctx  : 根上下文，取消时服务器停止
-//   - addr : 监听地址，如 ":8080"
+//   - addr : 本地模式监听地址，如 ":8080"；Lambda 模式下忽略此参数
 //
 // 返回：
 //   - error : 服务器启动或运行失败时返回错误
@@ -83,6 +91,21 @@ func (s *MCPServer) RunHTTP(ctx context.Context, addr string) error {
 	mux.Handle("/sse", handler)
 	mux.Handle("/", handler)
 
+	// Lambda Function URL 环境：使用 lambdaurl.Wrap 适配器。
+	// Lambda 运行时直接调用 handler，无需监听 TCP 端口。
+	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
+		utilities.LogProgress(mcpComponent, "RunHTTP",
+			"MCP SSE 服务器已就绪（Lambda Function URL 模式）",
+			"endpoint=/sse",
+		)
+		lambda.StartWithOptions(
+			lambdaurl.Wrap(mux),
+			lambda.WithContext(ctx),
+		)
+		return nil
+	}
+
+	// 本地模式：标准 HTTP 服务器。
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: mux,
@@ -94,7 +117,7 @@ func (s *MCPServer) RunHTTP(ctx context.Context, addr string) error {
 	}()
 
 	utilities.LogProgress(mcpComponent, "RunHTTP",
-		"MCP SSE 服务器已就绪",
+		"MCP SSE 服务器已就绪（本地模式）",
 		"addr="+addr,
 		"endpoint=/sse",
 	)
