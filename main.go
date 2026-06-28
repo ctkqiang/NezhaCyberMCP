@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/joho/godotenv"
 )
 
 const (
@@ -27,8 +26,15 @@ const (
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		utilities.Warn("未找到 .env 文件，使用系统环境变量: %v", err)
+	// 根据运行时环境选择配置加载策略：
+	//   - AWS 环境（Lambda 或 IS_AWS=true）：从 AWS Secrets Manager 加载，
+	//     不可用时回退到系统环境变量。
+	//   - 非 AWS 环境：从 .env 文件加载，不存在时回退到系统环境变量。
+	// LoadConfig 在加载完成后统一校验必需键，缺失时直接退出。
+	initCtx := context.Background()
+	if err := utilities.LoadConfig(initCtx); err != nil {
+		utilities.Error("配置加载失败，无法启动: %v", err)
+		os.Exit(1)
 	}
 
 	// 根据运行时环境选择执行模式：
