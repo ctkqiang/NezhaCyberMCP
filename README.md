@@ -719,6 +719,21 @@ SOFTWARE.
 
 ---
 
+## Support / 支持
+
+If you find this project helpful, feel free to buy me a coffee — your support keeps this project alive!
+如果您觉得本项目对您有帮助，欢迎请我喝杯咖啡，您的支持是我持续维护和改进的动力！
+
+<p align="center">
+  <strong>WeChat Donation / 微信扫码捐赠</strong><br/>
+  <img src="https://raw.gitcode.com/ctkqiang_sr/ctkqiang_sr/raw/main/mm_reward_qrcode_1778988737577.png"
+       alt="WeChat Donation QR Code / 微信扫码捐赠"
+       width="240"
+       style="border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);" />
+</p>
+
+---
+
 <div align="center">
 
 Built with Go · Powered by MCP · Secured by design · ctkqiang
