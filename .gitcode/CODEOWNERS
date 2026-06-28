@@ -1,0 +1,190 @@
+# CODEOWNERS for NezhaCyberMCP (哪吒网络安全 MCP)
+
+# This file defines code ownership and required reviewers for pull requests.
+
+#
+
+# When a PR modifies files matching these patterns, the specified owners
+
+# are automatically requested as reviewers (REQUIRED for merge).
+
+#
+
+# Format: <path/pattern> <@owner1> <@owner2>
+
+#
+
+# Reference: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# ===========================
+
+# Global Defaults
+
+# ===========================
+
+- @ctkqiang_sr
+
+# ===========================
+
+# Entry Point
+
+# ===========================
+
+/main.go @ctkqiang_sr
+/go.mod @ctkqiang_sr
+/go.sum @ctkqiang_sr
+/Makefile @ctkqiang_sr
+
+# ===========================
+
+# MCP Protocol Layer
+
+# ===========================
+
+/internal/services/mcp.go @ctkqiang_sr
+
+# ===========================
+
+# MCP Tool Implementations
+
+# ===========================
+
+/internal/functions/actions.go @ctkqiang_sr
+
+# ===========================
+
+# Data Models
+
+# ===========================
+
+/internal/model/ @ctkqiang_sr
+/internal/model/circl_cve.go @ctkqiang_sr
+/internal/model/github_advisory.go @ctkqiang_sr
+/internal/model/mycert_advisory.go @ctkqiang_sr
+
+# ===========================
+
+# Repository Layer (Database Access)
+
+# ===========================
+
+/internal/repository/ @ctkqiang_sr
+/internal/repository/circl_cve_repository.go @ctkqiang_sr
+/internal/repository/github_advisory_repository.go @ctkqiang_sr
+/internal/repository/mycert_advisory_repository.go @ctkqiang_sr
+
+# ===========================
+
+# Services & Data Ingestion
+
+# ===========================
+
+/internal/services/ @ctkqiang_sr
+/internal/services/circl.go @ctkqiang_sr
+/internal/services/github.go @ctkqiang_sr
+/internal/services/mycert.go @ctkqiang_sr
+/internal/services/database.go @ctkqiang_sr
+
+# ===========================
+
+# Scheduled Jobs & Cron
+
+# ===========================
+
+/internal/job/ @ctkqiang_sr
+/internal/job/advisory_job.go @ctkqiang_sr
+
+# ===========================
+
+# Utilities & Helpers
+
+# ===========================
+
+/internal/utilities/ @ctkqiang_sr
+/internal/utilities/logger.go @ctkqiang_sr
+/internal/utilities/aws.go @ctkqiang_sr
+
+# ===========================
+
+# Testing
+
+# ===========================
+
+/test/ @ctkqiang_sr
+/test/aws_test.go @ctkqiang_sr
+/test/circl_cve_test.go @ctkqiang_sr
+/test/database_dsql_test.go @ctkqiang_sr
+/test/db_environment_test.go @ctkqiang_sr
+/test/github_advisory_repository_test.go @ctkqiang_sr
+/test/mycert_repository_test.go @ctkqiang_sr
+/test/mycert_scraper_test.go @ctkqiang_sr
+
+# ===========================
+
+# Infrastructure & Deployment
+
+# ===========================
+
+/Makefile @ctkqiang_sr
+
+# ===========================
+
+# GitHub Actions / CI-CD
+
+# ===========================
+
+/.github/workflows/ @ctkqiang_sr
+/.github/workflows/deploy_landing_page.yml @ctkqiang_sr
+
+# ===========================
+
+# Documentation
+
+# ===========================
+
+\*.md @ctkqiang_sr
+/README.md @ctkqiang_sr
+/README_zh.md @ctkqiang_sr
+/docs/ @ctkqiang_sr
+/docs/en/ @ctkqiang_sr
+/docs/zh/ @ctkqiang_sr
+
+# ===========================
+
+# Rendered Diagram Outputs
+
+# ===========================
+
+/out/ @ctkqiang_sr
+
+# ===========================
+
+# Configuration Files
+
+# ===========================
+
+/.gitignore @ctkqiang_sr
+/.env.example @ctkqiang_sr
+/.vscode/ @ctkqiang_sr
+
+# ===========================
+
+# Landing Page (Vue/Nuxt)
+
+# ===========================
+
+/landing/ @ctkqiang_sr
+/landing/src/ @ctkqiang_sr
+/landing/nuxt.config.ts @ctkqiang_sr
+/landing/package.json @ctkqiang_sr
+
+# ===========================
+
+# Security & Compliance
+
+# ===========================
+
+/LICENSE @ctkqiang_sr
+/.github/CODEOWNERS @ctkqiang_sr
+
+# MIT License — Copyright (c) 2026 ctkqiang

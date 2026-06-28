@@ -1,0 +1,174 @@
+name: CI / 持续集成
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - 'landing/**'
+      - '*.md'
+      - 'docs/**'
+      - 'out/**'
+  pull_request:
+    branches: [main, master]
+    paths-ignore:
+      - 'landing/**'
+      - '*.md'
+      - 'docs/**'
+      - 'out/**'
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.24'
+
+jobs:
+  build:
+    name: Build / 构建
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout / 检出代码
+        uses: actions/checkout@v4
+
+      - name: Set up Go / 配置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies / 下载依赖
+        run: go mod download
+
+      - name: Verify dependencies / 验证依赖完整性
+        run: go mod verify
+
+      - name: Build (linux/amd64) / 构建 Linux 二进制
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w" -o /dev/null .
+
+      - name: Build (linux/arm64) / 构建 ARM64 二进制
+        run: |
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w" -o /dev/null .
+
+  vet:
+    name: Vet / 静态检查
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout / 检出代码
+        uses: actions/checkout@v4
+
+      - name: Set up Go / 配置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+  lint:
+    name: Lint / 代码规范检查
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout / 检出代码
+        uses: actions/checkout@v4
+
+      - name: Set up Go / 配置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  test:
+    name: Test / 单元测试
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout / 检出代码
+        uses: actions/checkout@v4
+
+      - name: Set up Go / 配置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies / 下载依赖
+        run: go mod download
+
+      - name: Run tests / 运行测试
+        run: |
+          go test -v -count=1 -timeout=120s \
+            -run "TestDBEnvironment|TestAWS" \
+            ./test/...
+        env:
+          IS_LOCAL: "true"
+          DB_SQLITE: "true"
+          DB_HOST: "localhost"
+          DB_PORT: "5432"
+          DB_USER: "postgres"
+          DB_PASSWORD: "test"
+          DB_NAME: "nezha_test"
+
+  security:
+    name: Security Scan / 安全扫描
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout / 检出代码
+        uses: actions/checkout@v4
+
+      - name: Set up Go / 配置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install gosec / 安装 gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec / 运行安全扫描
+        run: gosec -exclude-dir=landing ./...
+
+  lambda-package:
+    name: Lambda Package / Lambda 打包验证
+    runs-on: ubuntu-latest
+    needs: [build, vet, test]
+
+    steps:
+      - name: Checkout / 检出代码
+        uses: actions/checkout@v4
+
+      - name: Set up Go / 配置 Go 环境
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build Lambda package / 构建 Lambda 部署包
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w" -o bootstrap .
+          echo '#!/bin/sh' > env.sh
+          echo 'exec ./bootstrap "$@"' >> env.sh
+          chmod +x env.sh
+          zip -j bootstrap.zip bootstrap env.sh
+          ls -lh bootstrap.zip
+
+      - name: Upload artifact / 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-amd64
+          path: bootstrap.zip
+          retention-days: 7
